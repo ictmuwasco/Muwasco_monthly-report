@@ -3,12 +3,60 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Include Composer autoloader for TCPDF
-require_once __DIR__ . '/vendor/autoload.php';
-require_once 'db.php';
-require_once 'auth_functions.php';
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-requireLogin();
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    $_SESSION['redirect_url'] = $_SERVER['REQUEST_URI'];
+    header('Location: login.php');
+    exit();
+}
+
+// Include Composer autoloader for TCPDF
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+} else {
+    // Handle case where vendor folder doesn't exist
+    die('TCPDF library not found. Please install via composer: composer require tecnickcom/tcpdf');
+}
+
+require_once 'db.php';
+
+// Function to get user info (similar to what you have in other files)
+function getUserInfo($conn, $user_id) {
+    $stmt = $conn->prepare("
+        SELECT u.*, r.name as role, r.description as role_description 
+        FROM users u 
+        LEFT JOIN roles r ON u.role_id = r.id 
+        WHERE u.id = ?
+    ");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $user = $result->fetch_assoc();
+    $stmt->close();
+    
+    if ($user) {
+        // Create full name
+        $user['full_name'] = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+        if (empty($user['full_name'])) {
+            $user['full_name'] = $user['username'];
+        }
+    }
+    
+    return $user;
+}
+
+// Get user info
+$user_info = getUserInfo($conn, $_SESSION['user_id']);
+
+// Set session role if not set
+if (!isset($_SESSION['role']) && isset($user_info['role'])) {
+    $_SESSION['role'] = $user_info['role'];
+}
 
 // Get available months (only submitted ones) - ORDER BY month_year ASC for correct chronological order
 $months_query = "SELECT * FROM months WHERE status = 'submitted' ORDER BY month_year ASC";
@@ -32,8 +80,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_report'])) {
             $dateA = null;
             $dateB = null;
             foreach ($available_months as $m) {
-                if ($m['id'] == $a) $dateA = strtotime($m['month_year']);
-                if ($m['id'] == $b) $dateB = strtotime($m['month_year']);
+                if ($m['id'] == $a) $dateA = strtotime($m['month_year'] . '-01');
+                if ($m['id'] == $b) $dateB = strtotime($m['month_year'] . '-01');
             }
             return $dateA - $dateB;
         });
@@ -47,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_report'])) {
                 p.code,
                 p.label,
                 p.unit,
+                p.data_type,
                 m.month_year,
                 m.id as month_id,
                 md.value
@@ -68,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_report'])) {
         }
         
         // Format data for preview
-        $preview_data = formatPreviewData($report_data, $selected_months, $available_months);
+        $preview_data = formatPreviewData($report_data, $selected_months, $available_months, $conn);
     }
 }
 
@@ -78,24 +127,27 @@ if (isset($_GET['export'])) {
     $months_param = $_GET['months'] ?? '';
     $month_ids = explode(',', $months_param);
     
-    // Sort month IDs chronologically for export
-    $month_details = [];
-    foreach ($month_ids as $id) {
-        $month_query = "SELECT id, month_year FROM months WHERE id = ?";
-        $stmt = $conn->prepare($month_query);
-        $stmt->bind_param("i", $id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        if ($row = $result->fetch_assoc()) {
-            $month_details[] = $row;
-        }
-    }
-    usort($month_details, function($a, $b) {
-        return strtotime($a['month_year']) - strtotime($b['month_year']);
-    });
-    $sorted_month_ids = array_column($month_details, 'id');
+    // Filter out empty values
+    $month_ids = array_filter($month_ids, 'strlen');
     
-    if (count($sorted_month_ids) >= 3) {
+    if (count($month_ids) >= 3) {
+        // Sort month IDs chronologically for export
+        $month_details = [];
+        foreach ($month_ids as $id) {
+            $month_query = "SELECT id, month_year FROM months WHERE id = ?";
+            $stmt = $conn->prepare($month_query);
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $month_details[] = $row;
+            }
+        }
+        usort($month_details, function($a, $b) {
+            return strtotime($a['month_year'] . '-01') - strtotime($b['month_year'] . '-01');
+        });
+        $sorted_month_ids = array_column($month_details, 'id');
+        
         if ($export_type === 'word') {
             exportToWord($conn, $sorted_month_ids);
         } elseif ($export_type === 'pdf') {
@@ -105,70 +157,43 @@ if (isset($_GET['export'])) {
     exit;
 }
 
-function formatPreviewData($report_data, $selected_month_ids, $available_months) {
+function formatPreviewData($report_data, $selected_month_ids, $available_months, $conn) {
     $preview = [];
     
-    // Define the exact structure from your document
-    $structure = [
-        'Population Coverage' => ['1a', '1b', '1c', '1d'],
-        'Water Connections' => ['2a', '2b', '2c', '2d', '2e', '2f', '2g'],
-        'Breakdowns & Maintenance' => ['3a', '3b', '3c','3ci','3cii','3ciii', '3d', '3e'],
-        'Consumer Complaints' => ['4a', '4b', '4c'],
-        'Water Quality' => ['5a','5ai', '5aii','5aiii','5aiv', '5b','5c', '5ci', '5cii','5ciii', '5d', '5e', '5f', '5g', '5h', '5i', '5j', '5k', '5l', '5m', '5n'],
-        'Staff & Operations' => ['6a', '6b', '6c', '6d', '6e'],
-        'Billing & Revenue' => ['7a', '7b', '7c', '7d', '7e', '7f', '7g', '7h', '7i', '7j', '7k', '7l', '7m', '7n', '7o', '7p', '7q', '7r', '7s', '7t', '7u'],
-        'Water Production' => ['8a', '8bi', '8bii','8biii','8c', '8d', '8e', '8f', '8g', '8h', '8i', '8j', '8k'],
-        'Infrastructure' => ['9a', '9b'],
-        'Expenditure' => ['10a', '10b', '10c', '10d', '10e', '10f', '10g', '10h', '10i', '10j'],
-        'Sustainability' => ['11a', '11b', '11c', '11d', '11e', '11f', '11g', '11h', '11i'],
-        'Expenditure Details' => [
-            '12_1', '12_2', '12_3', '12_4', '12_5', '12_6', '12_7', '12_8', '12_9', '12_10',
-            '12_11', '12_12', '12_13', '12_14', '12_15', '12_16', '12_17', '12_18', '12_19', '12_20',
-            '12_21', '12_22', '12_23', '12_24', '12_25', '12_26', '12_27', '12_28', '12_29', '12_30',
-            '12_31', '12_32', '12_33', '12_34', '12_35', '12_36', '12_37', '12_38', '12_39', '12_40',
-            '12_41', '12_42', '12_43', '12_44', '12_45', '12_46', '12_47', '12_48', '12_49', '12_50',
-            '12_51', '12_52', '12_total'
-        ],
-        'Financial Sustainability' => ['13a', '13b', '13c', '13d', '13e', '13f']
-    ];
+    // Get category display order from database
+    $categories_query = "SELECT name, display_order FROM parameter_categories ORDER BY display_order";
+    $categories_result = $conn->query($categories_query);
+    $categories = [];
+    while ($row = $categories_result->fetch_assoc()) {
+        $categories[$row['name']] = $row['display_order'];
+    }
     
-    // Build preview data according to structure
-    foreach ($structure as $category => $codes) {
+    // Sort categories by display_order
+    uksort($report_data, function($a, $b) use ($categories) {
+        $orderA = $categories[$a] ?? 999;
+        $orderB = $categories[$b] ?? 999;
+        return $orderA - $orderB;
+    });
+    
+    // Build preview data
+    foreach ($report_data as $category => $parameters) {
         $preview[$category] = [];
-        foreach ($codes as $code) {
-            if (isset($report_data[$category][$code])) {
-                $row_data = ['label' => ''];
-                
-                // Get label from first available data
-                $first_data = reset($report_data[$category][$code]);
-                $row_data['label'] = $first_data['label'];
-                
-                // Add values for each selected month
-                foreach ($selected_month_ids as $month_id) {
-                    $value = isset($report_data[$category][$code][$month_id]) ? 
-                        $report_data[$category][$code][$month_id]['value'] : '-';
-                    $row_data[$month_id] = $value;
-                }
-                
-                $preview[$category][$code] = $row_data;
-            } else {
-                // Get label from database if parameter exists but has no data
-                global $conn;
-                $param_query = "SELECT p.label FROM parameters p 
-                              JOIN parameter_categories pc ON p.category_id = pc.id 
-                              WHERE p.code = ? AND pc.name = ?";
-                $stmt = $conn->prepare($param_query);
-                $stmt->bind_param("ss", $code, $category);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                if ($row = $result->fetch_assoc()) {
-                    $row_data = ['label' => $row['label']];
-                    foreach ($selected_month_ids as $month_id) {
-                        $row_data[$month_id] = '-';
-                    }
-                    $preview[$category][$code] = $row_data;
-                }
+        foreach ($parameters as $code => $month_data) {
+            // Get the first available data for label and unit
+            $first_data = reset($month_data);
+            $row_data = [
+                'label' => $first_data['label'] ?? '',
+                'unit' => $first_data['unit'] ?? '',
+                'data_type' => $first_data['data_type'] ?? 'text'
+            ];
+            
+            // Add values for each selected month
+            foreach ($selected_month_ids as $month_id) {
+                $value = isset($month_data[$month_id]) ? $month_data[$month_id]['value'] : '-';
+                $row_data[$month_id] = $value;
             }
+            
+            $preview[$category][$code] = $row_data;
         }
     }
     
@@ -184,6 +209,7 @@ function getExportData($conn, $month_ids) {
             p.code,
             p.label,
             p.unit,
+            p.data_type,
             m.month_year,
             m.id as month_id,
             md.value
@@ -208,119 +234,9 @@ function getExportData($conn, $month_ids) {
     return $data;
 }
 
-function formatExportData($data, $month_ids, $conn) {
-    // Define the exact structure from your document
-    $structure = [
-        'Population Coverage' => ['1a', '1b', '1c', '1d'],
-        'Water Connections' => ['2a', '2b', '2c', '2d', '2e', '2f', '2g'],
-        'Breakdowns & Maintenance' => ['3a', '3b', '3c', '3ci','3cii','3ciii', '3d', '3e'],
-        'Consumer Complaints' => ['4a', '4b', '4c'],
-        'Water Quality' => ['5a','5ai', '5aii','5aiii','5aiv', '5b', '5c', '5ci', '5cii','5ciii', '5d', '5e', '5f', '5g', '5h', '5i', '5j', '5k', '5l', '5m', '5n'],
-        'Staff & Operations' => ['6a', '6b', '6c', '6d', '6e'],
-        'Billing & Revenue' => ['7a', '7b', '7c', '7d', '7e', '7f', '7g', '7h', '7i', '7j', '7k', '7l', '7m', '7n', '7o', '7p', '7q', '7r', '7s', '7t', '7u'],
-        'Water Production' => ['8a', '8bi', '8bii','8biii','8c', '8d', '8e', '8f', '8g', '8h', '8i', '8j', '8k'],
-        'Infrastructure' => ['9a', '9b'],
-        'Expenditure' => ['10a', '10b', '10c', '10d', '10e', '10f', '10g', '10h', '10i', '10j'],
-        'Sustainability' => ['11a', '11b', '11c', '11d', '11e', '11f', '11g', '11h', '11i'],
-        'Expenditure Details' => [
-            '12_1', '12_2', '12_3', '12_4', '12_5', '12_6', '12_7', '12_8', '12_9', '12_10',
-            '12_11', '12_12', '12_13', '12_14', '12_15', '12_16', '12_17', '12_18', '12_19', '12_20',
-            '12_21', '12_22', '12_23', '12_24', '12_25', '12_26', '12_27', '12_28', '12_29', '12_30',
-            '12_31', '12_32', '12_33', '12_34', '12_35', '12_36', '12_37', '12_38', '12_39', '12_40',
-            '12_41', '12_42', '12_43', '12_44', '12_45', '12_46', '12_47', '12_48', '12_49', '12_50',
-            '12_51', '12_52', '12_total'
-        ],
-        'Financial Sustainability' => ['13a', '13b', '13c', '13d', '13e', '13f']
-    ];
-    
-    $formatted_data = [];
-    
-    // Build formatted data according to structure
-    foreach ($structure as $category => $codes) {
-        $formatted_data[$category] = [];
-        foreach ($codes as $code) {
-            if (isset($data[$category][$code])) {
-                $row_data = [];
-                $first_month = reset($data[$category][$code]);
-                $row_data['label'] = $first_month['label'];
-                $row_data['unit'] = $first_month['unit'];
-                
-                // Add values for each selected month
-                foreach ($month_ids as $month_id) {
-                    $row_data[$month_id] = isset($data[$category][$code][$month_id]) ? 
-                        $data[$category][$code][$month_id]['value'] : '-';
-                }
-                
-                $formatted_data[$category][$code] = $row_data;
-            } else {
-                // Get label from database if parameter exists but has no data
-                $param_query = "SELECT p.label, p.unit FROM parameters p 
-                              JOIN parameter_categories pc ON p.category_id = pc.id 
-                              WHERE p.code = ? AND pc.name = ?";
-                $stmt = $conn->prepare($param_query);
-                $stmt->bind_param("ss", $code, $category);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                if ($row = $result->fetch_assoc()) {
-                    $row_data = [
-                        'label' => $row['label'],
-                        'unit' => $row['unit']
-                    ];
-                    foreach ($month_ids as $month_id) {
-                        $row_data[$month_id] = '-';
-                    }
-                    $formatted_data[$category][$code] = $row_data;
-                }
-            }
-        }
-    }
-    
-    return $formatted_data;
-}
-
 function exportToWord($conn, $month_ids) {
     $data = getExportData($conn, $month_ids);
-    $formatted_data = formatExportData($data, $month_ids, $conn);
     
-    header("Content-Type: application/vnd.ms-word");
-    header("Content-Disposition: attachment; filename=muwasco_monitoring_report.doc");
-    header("Pragma: no-cache");
-    header("Expires: 0");
-    
-    echo generateWordContent($formatted_data, $month_ids, $conn);
-    exit;
-}
-
-function exportToPDF($conn, $month_ids) {
-    $data = getExportData($conn, $month_ids);
-    $formatted_data = formatExportData($data, $month_ids, $conn);
-    
-    // Create new PDF document
-    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
-    
-    // Set document information
-    $pdf->SetCreator('MUWASCO Monitoring System');
-    $pdf->SetAuthor('MUWASCO');
-    $pdf->SetTitle('Water Monitoring Report');
-    $pdf->SetSubject('Monthly Water Monitoring Data');
-    
-    // Set margins
-    $pdf->SetMargins(10, 15, 10);
-    $pdf->SetAutoPageBreak(TRUE, 15);
-    
-    // Add a page
-    $pdf->AddPage();
-    
-    // Add content
-    $html = generatePDFContent($formatted_data, $month_ids, $conn);
-    $pdf->writeHTML($html, true, false, true, false, '');
-    
-    // Close and output PDF document
-    $pdf->Output('muwasco_monitoring_report.pdf', 'D');
-    exit;
-}
-
-function generateWordContent($data, $month_ids, $conn) {
     // Get month labels in chronological order
     $month_labels = [];
     $months_query = "SELECT id, month_year FROM months WHERE id IN (" . implode(',', $month_ids) . ") ORDER BY month_year ASC";
@@ -329,6 +245,56 @@ function generateWordContent($data, $month_ids, $conn) {
         $month_labels[$row['id']] = date('F Y', strtotime($row['month_year'] . '-01'));
     }
     
+    header("Content-Type: application/vnd.ms-word");
+    header("Content-Disposition: attachment; filename=muwasco_monitoring_report.doc");
+    header("Pragma: no-cache");
+    header("Expires: 0");
+    
+    echo generateWordContent($data, $month_ids, $month_labels, $conn);
+    exit;
+}
+
+function exportToPDF($conn, $month_ids) {
+    $data = getExportData($conn, $month_ids);
+    
+    // Get month labels in chronological order
+    $month_labels = [];
+    $months_query = "SELECT id, month_year FROM months WHERE id IN (" . implode(',', $month_ids) . ") ORDER BY month_year ASC";
+    $result = $conn->query($months_query);
+    while ($row = $result->fetch_assoc()) {
+        $month_labels[$row['id']] = date('F Y', strtotime($row['month_year'] . '-01'));
+    }
+    
+    try {
+        // Create new PDF document
+        $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+        
+        // Set document information
+        $pdf->SetCreator('MUWASCO Monitoring System');
+        $pdf->SetAuthor('MUWASCO');
+        $pdf->SetTitle('Water Monitoring Report');
+        $pdf->SetSubject('Monthly Water Monitoring Data');
+        
+        // Set margins
+        $pdf->SetMargins(10, 15, 10);
+        $pdf->SetAutoPageBreak(TRUE, 15);
+        
+        // Add a page
+        $pdf->AddPage();
+        
+        // Add content
+        $html = generatePDFContent($data, $month_ids, $month_labels, $conn);
+        $pdf->writeHTML($html, true, false, true, false, '');
+        
+        // Close and output PDF document
+        $pdf->Output('muwasco_monitoring_report.pdf', 'D');
+        exit;
+    } catch (Exception $e) {
+        die("Error generating PDF: " . $e->getMessage());
+    }
+}
+
+function generateWordContent($data, $month_ids, $month_labels, $conn) {
     $content = "<html>
     <head>
         <meta charset='UTF-8'>
@@ -355,6 +321,8 @@ function generateWordContent($data, $month_ids, $conn) {
     
     $categories_displayed = 0;
     foreach ($data as $category => $parameters) {
+        if (empty($parameters)) continue;
+        
         $content .= "<div class='category-header'>" . strtoupper(str_replace('_', ' ', $category)) . "</div>";
         $content .= "<table>
             <tr>
@@ -370,14 +338,15 @@ function generateWordContent($data, $month_ids, $conn) {
         $content .= "</tr>";
         
         $counter = 1;
-        foreach ($parameters as $code => $row_data) {
+        foreach ($parameters as $code => $month_data) {
+            $first_data = reset($month_data);
             $content .= "<tr>
                 <td>" . $counter . "</td>
                 <td class='parameter-code'>" . htmlspecialchars($code) . "</td>
-                <td class='parameter-label'>" . htmlspecialchars($row_data['label']) . "</td>";
+                <td class='parameter-label'>" . htmlspecialchars($first_data['label']) . "</td>";
             
             foreach ($month_ids as $month_id) {
-                $value = isset($row_data[$month_id]) ? $row_data[$month_id] : '-';
+                $value = isset($month_data[$month_id]) ? $month_data[$month_id]['value'] : '-';
                 $content .= "<td>" . htmlspecialchars($value) . "</td>";
             }
             
@@ -389,7 +358,7 @@ function generateWordContent($data, $month_ids, $conn) {
         
         $categories_displayed++;
         
-        // Add Technical Manager signature after Water Quality (5th category)
+        // Add Technical Manager signature after Water Quality (assuming it's the 5th category)
         if ($categories_displayed == 5) {
             $content .= "<div class='signature-section'>
                 <p><strong>Above data</strong></p>
@@ -414,15 +383,7 @@ function generateWordContent($data, $month_ids, $conn) {
     return $content;
 }
 
-function generatePDFContent($data, $month_ids, $conn) {
-    // Get month labels in chronological order
-    $month_labels = [];
-    $months_query = "SELECT id, month_year FROM months WHERE id IN (" . implode(',', $month_ids) . ") ORDER BY month_year ASC";
-    $result = $conn->query($months_query);
-    while ($row = $result->fetch_assoc()) {
-        $month_labels[$row['id']] = date('F Y', strtotime($row['month_year'] . '-01'));
-    }
-    
+function generatePDFContent($data, $month_ids, $month_labels, $conn) {
     $html = '<div style="text-align: center;">
         <h2 style="margin-bottom: 5px;">ATHI WATER WORKS DEVELOPMENT AGENCY</h2>
         <h3 style="margin-bottom: 5px;">MONITORING TEMPLATE AND DATA CAPTURE FORMAT FOR MUWASCO</h3>
@@ -432,6 +393,8 @@ function generatePDFContent($data, $month_ids, $conn) {
     
     $categories_displayed = 0;
     foreach ($data as $category => $parameters) {
+        if (empty($parameters)) continue;
+        
         // Add category header
         $html .= '<div style="background-color: #e6e6e6; font-weight: bold; padding: 8px; text-align: center; margin-bottom: 10px; border: 1px solid #000;">
             <strong>' . strtoupper(str_replace('_', ' ', $category)) . '</strong>
@@ -451,14 +414,15 @@ function generatePDFContent($data, $month_ids, $conn) {
         $html .= '</tr>';
         
         $counter = 1;
-        foreach ($parameters as $code => $row_data) {
+        foreach ($parameters as $code => $month_data) {
+            $first_data = reset($month_data);
             $html .= '<tr>
                 <td>' . $counter . '</td>
                 <td><strong style="color: #0066cc;">' . htmlspecialchars($code) . '</strong></td>
-                <td><strong>' . htmlspecialchars($row_data['label']) . '</strong></td>';
+                <td><strong>' . htmlspecialchars($first_data['label']) . '</strong></td>';
             
             foreach ($month_ids as $month_id) {
-                $value = isset($row_data[$month_id]) ? $row_data[$month_id] : '-';
+                $value = isset($month_data[$month_id]) ? $month_data[$month_id]['value'] : '-';
                 $html .= '<td>' . htmlspecialchars($value) . '</td>';
             }
             
@@ -470,7 +434,7 @@ function generatePDFContent($data, $month_ids, $conn) {
         
         $categories_displayed++;
         
-        // Add Technical Manager signature after Water Quality (5th category)
+        // Add Technical Manager signature after Water Quality
         if ($categories_displayed == 5) {
             $html .= '<div style="margin-top: 20px; margin-bottom: 20px;">
                 <p><strong>Above data</strong></p>
@@ -493,9 +457,6 @@ function generatePDFContent($data, $month_ids, $conn) {
     
     return $html;
 }
-
-// Get user info for display
-$user_info = getUserInfo($conn, $_SESSION['user_id']);
 ?>
 
 <!DOCTYPE html>
@@ -512,16 +473,22 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
     
     <!-- Global CSS -->
     <link rel="stylesheet" href="style.css">
+    
 </head>
 <body>
     <!-- Navigation -->
-    <?php include 'nav_bar.php'; ?>
+    <?php 
+    // Check if nav_bar.php exists and include it
+    if (file_exists('nav_bar.php')) {
+        include 'nav_bar.php'; 
+    }
+    ?>
 
     <div class="main-container">
         <div class="main-content">
             <div class="page-content">
                 <div class="reports-dashboard-container">
-                    <div class="reports-main-container animate-fade-in-up">
+                    <div class="reports-main-container">
                         <div class="reports-header-section">
                             <h1>ATHI WATER WORKS DEVELOPMENT AGENCY</h1>
                             <h2>MONITORING TEMPLATE AND DATA CAPTURE FORMAT FOR MUWASCO</h2>
@@ -561,7 +528,7 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                                 <?php endif; ?>
                                 
                                 <div class="report-btn-group">
-                                    <button type="submit" name="generate_report" class="report-generate-btn pulse" id="generateBtn">
+                                    <button type="submit" name="generate_report" class="report-generate-btn" id="generateBtn">
                                         <i class="bi bi-bar-chart me-2"></i>Generate Report Preview
                                     </button>
                                 </div>
@@ -573,11 +540,18 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                                 <i class="bi bi-check-circle-fill me-2"></i>
                                 <strong>Report Generated Successfully!</strong> 
                                 Selected months: 
-                                <?= implode(', ', array_map(function($id) use ($available_months) {
-                                    $month = array_filter($available_months, function($m) use ($id) { return $m['id'] == $id; });
-                                    $month = reset($month);
-                                    return date('F Y', strtotime($month['month_year'] . '-01'));
-                                }, $selected_months)) ?>
+                                <?php 
+                                $month_labels = [];
+                                foreach ($selected_months as $id) {
+                                    foreach ($available_months as $m) {
+                                        if ($m['id'] == $id) {
+                                            $month_labels[] = date('F Y', strtotime($m['month_year'] . '-01'));
+                                            break;
+                                        }
+                                    }
+                                }
+                                echo implode(', ', $month_labels);
+                                ?>
                             </div>
 
                             <div class="report-export-options no-print">
@@ -587,11 +561,11 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                                 </h3>
                                 <div class="report-export-buttons">
                                     <a href="?export=word&months=<?= implode(',', $selected_months) ?>" 
-                                       class="report-export-btn report-floating" target="_blank">
+                                       class="report-export-btn report-floating">
                                         <i class="bi bi-file-word me-2"></i>Export to Word
                                     </a>
                                     <a href="?export=pdf&months=<?= implode(',', $selected_months) ?>" 
-                                       class="report-export-btn report-export-btn-pdf report-floating" style="animation-delay: 0.2s;" target="_blank">
+                                       class="report-export-btn report-export-btn-pdf report-floating" style="animation-delay: 0.2s;">
                                         <i class="bi bi-file-pdf me-2"></i>Export to PDF
                                     </a>
                                     <button type="button" onclick="window.print()" class="report-export-btn report-export-btn-print">
@@ -617,6 +591,7 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                                 <?php 
                                 $categories_displayed = 0;
                                 foreach ($preview_data as $category => $parameters): 
+                                    if (empty($parameters)) continue;
                                     $categories_displayed++;
                                 ?>
                                     <div class="report-category-header">
@@ -671,7 +646,7 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                                     </table>
 
                                     <!-- Technical Manager signature after Water Quality -->
-                                    <?php if ($categories_displayed == 5): ?>
+                                    <?php if ($categories_displayed == 5 && $category == 'Water Quality'): ?>
                                         <div class="report-signature-section report-technical-signature">
                                             <h5>
                                                 <i class="bi bi-pen me-2"></i>
@@ -763,12 +738,6 @@ $user_info = getUserInfo($conn, $_SESSION['user_id']);
                         label.style.transform = '';
                     }, 150);
                 });
-            });
-            
-            // Add floating effect to export buttons
-            const exportButtons = document.querySelectorAll('.report-floating');
-            exportButtons.forEach((btn, index) => {
-                btn.style.animationDelay = (index * 0.2) + 's';
             });
         });
     </script>

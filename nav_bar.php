@@ -1,10 +1,66 @@
- <!-- nav_bar.php - Futuristic Sidebar Navigation for AquaTrack Pro -->
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// If no user is logged in, don't show the navbar
 if (!isset($_SESSION['user_id'])) {
     return;
 }
 
+// Get database connection
+require_once 'db.php';
+
+// Include functions if not already included
+if (!function_exists('getUserInfo')) {
+    // Try to include auth_functions.php or functions.php
+    $function_files = ['auth_functions.php', 'functions.php'];
+    $function_included = false;
+    
+    foreach ($function_files as $file) {
+        if (file_exists($file)) {
+            require_once $file;
+            $function_included = true;
+            break;
+        }
+    }
+    
+    // If functions file not found, define the function here
+    if (!$function_included) {
+        function getUserInfo($conn, $user_id) {
+            $stmt = $conn->prepare("
+                SELECT u.*, r.name as role 
+                FROM users u 
+                LEFT JOIN roles r ON u.role_id = r.id 
+                WHERE u.id = ?
+            ");
+            $stmt->bind_param("i", $user_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $user = $result->fetch_assoc();
+            $stmt->close();
+            
+            if ($user) {
+                // Create full name
+                $user['full_name'] = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+                if (empty($user['full_name'])) {
+                    $user['full_name'] = $user['username'];
+                }
+            }
+            
+            return $user;
+        }
+    }
+}
+
+// Get user info
 $user_info = getUserInfo($conn, $_SESSION['user_id']);
+
+// Set session role if not set
+if (!isset($_SESSION['role']) && isset($user_info['role'])) {
+    $_SESSION['role'] = $user_info['role'];
+}
+
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
 
@@ -40,6 +96,14 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <span class="nav-text">Months</span>
                 </a>
             </li>
+              <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= $current_page == 'assignment.php' ? 'active' : ''; ?>" href="assignment.php">
+                    <span class="nav-icon" aria-hidden="true">👥</span>
+                    <span class="nav-text">Parameter Assignment</span>
+                </a>
+            </li>
+            <?php endif; ?>
             <li class="nav-item">
                 <a class="nav-link <?= $current_page == 'reports.php' ? 'active' : ''; ?>" href="reports.php">
                     <span class="nav-icon" aria-hidden="true">📊</span>

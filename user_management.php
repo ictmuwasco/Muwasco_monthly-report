@@ -1,112 +1,218 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-require_once 'db.php';
+// user_management.php
+session_start();
 require_once 'auth_functions.php';
+require_once 'db.php';
 
-// Require admin access
-requireAdmin();
+// Check if user is admin using updated function
+requireLogin();
+if (!isAdmin()) {
+    header('HTTP/1.0 403 Forbidden');
+    echo "Access denied. Admin privileges required.";
+    exit();
+}
 
-$success = '';
-$error = '';
+// Handle user actions
+$message = '';
+$message_type = '';
 
-// Handle form submissions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    
-    switch ($action) {
-        case 'create_user':
-            $username = trim($_POST['username']);
-            $password = $_POST['password'];
-            $full_name = trim($_POST['full_name']);
-            $email = trim($_POST['email']);
-            $role = $_POST['role'];
+// Create new user
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_user'])) {
+    $username = trim($_POST['username']);
+    $password = $_POST['password'];
+    $confirm_password = $_POST['confirm_password'];
+    $email = trim($_POST['email']);
+    $first_name = trim($_POST['first_name']);
+    $last_name = trim($_POST['last_name']);
+    $surname = trim($_POST['surname']);
+    $role_id = intval($_POST['role_id']);
+    $is_active = isset($_POST['is_active']) ? 1 : 0;
+
+    // Validation
+    if (empty($username) || empty($password)) {
+        $message = 'Username and password are required';
+        $message_type = 'danger';
+    } elseif ($password !== $confirm_password) {
+        $message = 'Passwords do not match';
+        $message_type = 'danger';
+    } elseif (strlen($password) < 6) {
+        $message = 'Password must be at least 6 characters';
+        $message_type = 'danger';
+    } else {
+        // Check if username exists
+        $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $stmt->store_result();
+        
+        if ($stmt->num_rows > 0) {
+            $message = 'Username already exists';
+            $message_type = 'danger';
+        } else {
+            // Hash password
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             
-            if (!empty($username) && !empty($password) && !empty($full_name)) {
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-                
-                $stmt = $conn->prepare("INSERT INTO users (username, password, full_name, email, role) VALUES (?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssss", $username, $hashed_password, $full_name, $email, $role);
-                
-                if ($stmt->execute()) {
-                    $success = "User created successfully!";
-                } else {
-                    $error = "Error creating user: " . $conn->error;
-                }
-            } else {
-                $error = "Please fill in all required fields.";
-            }
-            break;
-            
-        case 'update_user':
-            $user_id = intval($_POST['user_id']);
-            $full_name = trim($_POST['full_name']);
-            $email = trim($_POST['email']);
-            $role = $_POST['role'];
-            $is_active = isset($_POST['is_active']) ? 1 : 0;
-            
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ? WHERE id = ?");
-            $stmt->bind_param("sssii", $full_name, $email, $role, $is_active, $user_id);
+            // Insert user
+            $stmt = $conn->prepare("
+                INSERT INTO users (username, password, email, first_name, last_name, surname, role_id, is_active, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->bind_param("ssssssii", $username, $hashed_password, $email, $first_name, $last_name, $surname, $role_id, $is_active);
             
             if ($stmt->execute()) {
-                $success = "User updated successfully!";
+                $message = 'User created successfully';
+                $message_type = 'success';
             } else {
-                $error = "Error updating user: " . $conn->error;
+                $message = 'Error creating user: ' . $conn->error;
+                $message_type = 'danger';
             }
-            break;
-            
-        case 'reset_password':
-            $user_id = intval($_POST['user_id']);
-            $new_password = $_POST['new_password'];
-            
-            if (!empty($new_password)) {
-                $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-                $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
-                $stmt->bind_param("si", $hashed_password, $user_id);
-                
-                if ($stmt->execute()) {
-                    $success = "Password reset successfully!";
-                } else {
-                    $error = "Error resetting password: " . $conn->error;
-                }
-            }
-            break;
-            
-        case 'assign_sections':
-            $user_id = intval($_POST['user_id']);
-            $sections = $_POST['sections'] ?? [];
-            
-            // Delete existing assignments
-            $stmt = $conn->prepare("DELETE FROM user_section_assignments WHERE user_id = ?");
-            $stmt->bind_param("i", $user_id);
-            $stmt->execute();
-            
-            // Insert new assignments
-            if (!empty($sections)) {
-                $stmt = $conn->prepare("INSERT INTO user_section_assignments (user_id, category_id) VALUES (?, ?)");
-                foreach ($sections as $section_id) {
-                    $stmt->bind_param("ii", $user_id, $section_id);
-                    $stmt->execute();
-                }
-            }
-            
-            $success = "Section assignments updated successfully!";
-            break;
+        }
+        $stmt->close();
     }
 }
 
-// Get all users
-$users_query = "SELECT * FROM users ORDER BY created_at DESC";
-$users_result = $conn->query($users_query);
+// Update user
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_user'])) {
+    $user_id = intval($_POST['user_id']);
+    $email = trim($_POST['email']);
+    $first_name = trim($_POST['first_name']);
+    $last_name = trim($_POST['last_name']);
+    $surname = trim($_POST['surname']);
+    $role_id = intval($_POST['role_id']);
+    $is_active = isset($_POST['is_active']) ? 1 : 0;
 
-// Get all sections
-$sections_query = "SELECT * FROM parameter_categories ORDER BY display_order";
-$sections_result = $conn->query($sections_query);
-$all_sections = [];
-while ($row = $sections_result->fetch_assoc()) {
-    $all_sections[] = $row;
+    // Update user
+    $stmt = $conn->prepare("
+        UPDATE users 
+        SET email = ?, first_name = ?, last_name = ?, surname = ?, role_id = ?, is_active = ?
+        WHERE id = ?
+    ");
+    $stmt->bind_param("ssssiii", $email, $first_name, $last_name, $surname, $role_id, $is_active, $user_id);
+    
+    if ($stmt->execute()) {
+        $message = 'User updated successfully';
+        $message_type = 'success';
+    } else {
+        $message = 'Error updating user: ' . $conn->error;
+        $message_type = 'danger';
+    }
+    $stmt->close();
 }
 
+// Reset password
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
+    $user_id = intval($_POST['user_id']);
+    $new_password = $_POST['new_password'];
+    $confirm_password = $_POST['confirm_password'];
+    
+    if (empty($new_password)) {
+        $message = 'New password is required';
+        $message_type = 'danger';
+    } elseif ($new_password !== $confirm_password) {
+        $message = 'Passwords do not match';
+        $message_type = 'danger';
+    } elseif (strlen($new_password) < 6) {
+        $message = 'Password must be at least 6 characters';
+        $message_type = 'danger';
+    } else {
+        $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+        
+        $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+        $stmt->bind_param("si", $hashed_password, $user_id);
+        
+        if ($stmt->execute()) {
+            $message = 'Password reset successfully';
+            $message_type = 'success';
+        } else {
+            $message = 'Error resetting password: ' . $conn->error;
+            $message_type = 'danger';
+        }
+        $stmt->close();
+    }
+}
+
+// Toggle user active status
+if (isset($_GET['toggle_active'])) {
+    $user_id = intval($_GET['toggle_active']);
+    
+    $stmt = $conn->prepare("SELECT is_active FROM users WHERE id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $stmt->bind_result($current_status);
+    $stmt->fetch();
+    $stmt->close();
+    
+    $new_status = $current_status ? 0 : 1;
+    
+    $stmt = $conn->prepare("UPDATE users SET is_active = ? WHERE id = ?");
+    $stmt->bind_param("ii", $new_status, $user_id);
+    
+    if ($stmt->execute()) {
+        $message = 'User status updated successfully';
+        $message_type = 'success';
+    } else {
+        $message = 'Error updating user status';
+        $message_type = 'danger';
+    }
+    $stmt->close();
+}
+
+// Delete user
+if (isset($_GET['delete'])) {
+    $user_id = intval($_GET['delete']);
+    
+    // Prevent deleting yourself
+    if ($user_id == $_SESSION['user_id']) {
+        $message = 'Cannot delete your own account';
+        $message_type = 'danger';
+    } else {
+        $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        
+        if ($stmt->execute()) {
+            $message = 'User deleted successfully';
+            $message_type = 'success';
+        } else {
+            $message = 'Error deleting user: ' . $conn->error;
+            $message_type = 'danger';
+        }
+        $stmt->close();
+    }
+}
+
+// Get user details for edit modal
+$edit_user = null;
+if (isset($_GET['edit'])) {
+    $user_id = intval($_GET['edit']);
+    $stmt = $conn->prepare("
+        SELECT u.*, r.name as role_name 
+        FROM users u 
+        LEFT JOIN roles r ON u.role_id = r.id 
+        WHERE u.id = ?
+    ");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $edit_user = $result->fetch_assoc();
+    $stmt->close();
+}
+
+// Get all users with role information
+$users_query = "
+    SELECT u.*, r.name as role_name 
+    FROM users u 
+    LEFT JOIN roles r ON u.role_id = r.id 
+    ORDER BY u.created_at DESC
+";
+$users_result = $conn->query($users_query);
+
+// Get all roles for dropdown - store them in an array for reuse
+$roles_query = "SELECT id, name FROM roles ORDER BY name";
+$roles_result = $conn->query($roles_query);
+$roles_array = [];
+while ($role = $roles_result->fetch_assoc()) {
+    $roles_array[] = $role;
+}
 ?>
 
 <!DOCTYPE html>
@@ -114,360 +220,596 @@ while ($row = $sections_result->fetch_assoc()) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Management - MUWASCO</title>
-    
-    <!-- External Libraries -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Global CSS -->
-    <link rel="stylesheet" href="style.css">
-</head>
-<body class="user-management-page">
-    <div class="main-container">
-        <?php include 'nav_bar.php'; ?>
+    <title>User Management - MUWASCO Monthly Report</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link href="style.css" rel="stylesheet">
+    <style>
+        /* Page-specific overrides to remove top spacing */
+        .user-management-page .page-content {
+            padding-top: 0 !important;
+        }
         
-        <div class="main-content">
+        .user-management-page .content-wrapper {
+            padding-top: 20px !important;
+        }
+        
+        /* Ensure page header has no top margin */
+        .user-management-page .page-header {
+            margin-top: 0 !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Modal Backdrop -->
+    <div class="modal-overlay" id="modalBackdrop" style="display: none;"></div>
+    
+    <!-- Main Container with user-management-page class -->
+    <div class="main-container user-management-page">
+        <!-- Include Navbar -->
+        <?php include 'nav_bar.php'; ?>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Top Header -->
+            <header class="top-header">
+                <div class="header-left">
+                    <button class="sidebar-toggle" id="sidebarToggle">
+                        <i class="bi bi-list"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1>User Management</h1>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <span class="header-badge badge-success">
+                        <i class="bi bi-person-check"></i> Admin
+                    </span>
+                </div>
+            </header>
+
+            <!-- Page Content -->
             <div class="page-content">
-                <div class="user-management-wrapper">
-                    <?php if ($success): ?>
-                        <div class="alert alert-success alert-dismissible fade show animate-fade-in-up" role="alert">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-check-circle-fill me-3"></i>
-                                <div>
-                                    <h5 class="alert-heading mb-1">Success!</h5>
-                                    <p class="mb-0"><?php echo $success; ?></p>
-                                </div>
-                            </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    <?php endif; ?>
-
-                    <?php if ($error): ?>
-                        <div class="alert alert-danger alert-dismissible fade show animate-fade-in-up" role="alert">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-exclamation-triangle-fill me-3"></i>
-                                <div>
-                                    <h5 class="alert-heading mb-1">Error!</h5>
-                                    <p class="mb-0"><?php echo $error; ?></p>
-                                </div>
-                            </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    <?php endif; ?>
-
+                <div class="content-wrapper">
+                    
                     <!-- Page Header -->
-                    <div class="page-header animate-fade-in-up">
-                        <h2><i class="bi bi-people-fill me-3"></i>User Management</h2>
-                        <p class="mb-0">Manage users and section assignments for the water reporting system</p>
+                    <div class="page-header">
+                        <h2><i class="bi bi-people-fill"></i> User Management</h2>
+                        <p>Manage system users, roles, and permissions. You can create new users, edit details, reset passwords, and manage user status.</p>
                     </div>
 
-                    <!-- Create New User -->
-                    <div class="user-management-card animate-fade-in-up" style="animation-delay: 0.1s;">
-                        <div class="card-header">
-                            <h5><i class="bi bi-person-plus me-2"></i>Create New User</h5>
-                        </div>
-                        <div class="card-body">
-                            <form method="POST" class="user-form" id="createUserForm">
-                                <input type="hidden" name="action" value="create_user">
-                                <div class="row">
-                                    <div class="col-md-3 mb-3">
-                                        <label class="form-label">Username *</label>
-                                        <input type="text" name="username" class="form-control" required 
-                                               placeholder="Enter username" minlength="3" maxlength="50">
-                                    </div>
-                                    <div class="col-md-3 mb-3">
-                                        <label class="form-label">Password *</label>
-                                        <input type="password" name="password" class="form-control" required 
-                                               placeholder="Enter password" minlength="6">
-                                    </div>
-                                    <div class="col-md-3 mb-3">
-                                        <label class="form-label">Full Name *</label>
-                                        <input type="text" name="full_name" class="form-control" required 
-                                               placeholder="Enter full name">
-                                    </div>
-                                    <div class="col-md-3 mb-3">
-                                        <label class="form-label">Email</label>
-                                        <input type="email" name="email" class="form-control" 
-                                               placeholder="user@example.com">
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-md-3 mb-3">
-                                        <label class="form-label">Role *</label>
-                                        <select name="role" class="form-select" required>
-                                            <option value="user">User</option>
-                                            <option value="admin">Admin</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-3 mb-3 d-flex align-items-end">
-                                        <button type="submit" class="btn btn-primary w-100">
-                                            <i class="bi bi-person-add me-2"></i>Create User
-                                        </button>
-                                    </div>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-
-                    <!-- Users List -->
-                    <div class="user-management-card animate-fade-in-up" style="animation-delay: 0.2s;">
-                        <div class="card-header">
-                            <h5><i class="bi bi-people me-2"></i>Existing Users</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="user-management-table">
-                                    <thead>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Username</th>
-                                            <th>Full Name</th>
-                                            <th>Email</th>
-                                            <th>Role</th>
-                                            <th>Status</th>
-                                            <th>Sections</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php while ($user = $users_result->fetch_assoc()): 
-                                            $user_sections = getUserSections($conn, $user['id']);
-                                        ?>
-                                        <tr>
-                                            <td><strong><?php echo $user['id']; ?></strong></td>
-                                            <td><?php echo htmlspecialchars($user['username']); ?></td>
-                                            <td><?php echo htmlspecialchars($user['full_name']); ?></td>
-                                            <td><?php echo htmlspecialchars($user['email'] ?? 'N/A'); ?></td>
-                                            <td>
-                                                <span class="badge-role status-<?php echo $user['role']; ?>">
-                                                    <i class="bi bi-<?php echo $user['role'] === 'admin' ? 'shield' : 'person'; ?> me-1"></i>
-                                                    <?php echo strtoupper($user['role']); ?>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span class="badge-role status-<?php echo $user['is_active'] ? 'active' : 'inactive'; ?>">
-                                                    <i class="bi bi-<?php echo $user['is_active'] ? 'check-circle' : 'x-circle'; ?> me-1"></i>
-                                                    <?php echo $user['is_active'] ? 'Active' : 'Inactive'; ?>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span class="badge user-section-badge">
-                                                    <i class="bi bi-folder me-1"></i>
-                                                    <?php echo count($user_sections); ?> assigned
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <div class="user-action-buttons">
-                                                    <button type="button" class="btn-user-action btn-info" 
-                                                            data-bs-toggle="modal" 
-                                                            data-bs-target="#assignModal<?php echo $user['id']; ?>">
-                                                        <i class="bi bi-diagram-3 me-1"></i>Assign
-                                                    </button>
-                                                    <button type="button" class="btn-user-action btn-warning" 
-                                                            data-bs-toggle="modal" 
-                                                            data-bs-target="#editModal<?php echo $user['id']; ?>">
-                                                        <i class="bi bi-pencil me-1"></i>Edit
-                                                    </button>
-                                                    <button type="button" class="btn-user-action btn-secondary" 
-                                                            data-bs-toggle="modal" 
-                                                            data-bs-target="#passwordModal<?php echo $user['id']; ?>">
-                                                        <i class="bi bi-key me-1"></i>Password
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Assign Sections Modal -->
-                                        <div class="modal fade" id="assignModal<?php echo $user['id']; ?>" tabindex="-1" aria-hidden="true">
-                                            <div class="modal-dialog modal-lg modal-dialog-centered">
-                                                <div class="modal-content">
-                                                    <form method="POST" class="assign-form">
-                                                        <input type="hidden" name="action" value="assign_sections">
-                                                        <input type="hidden" name="user_id" value="<?php echo $user['id']; ?>">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title">
-                                                                <i class="bi bi-diagram-3 me-2"></i>
-                                                                Assign Sections - <?php echo htmlspecialchars($user['full_name']); ?>
-                                                            </h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            <p class="text-muted mb-4">Select the sections this user can access:</p>
-                                                            <div class="checkbox-grid">
-                                                                <?php 
-                                                                $assigned_section_ids = array_column($user_sections, 'id');
-                                                                foreach ($all_sections as $section): 
-                                                                ?>
-                                                                <div class="form-check">
-                                                                    <input class="form-check-input" type="checkbox" 
-                                                                           name="sections[]" 
-                                                                           value="<?php echo $section['id']; ?>"
-                                                                           id="section<?php echo $user['id']; ?>_<?php echo $section['id']; ?>"
-                                                                           <?php echo in_array($section['id'], $assigned_section_ids) ? 'checked' : ''; ?>>
-                                                                    <label class="form-check-label" 
-                                                                           for="section<?php echo $user['id']; ?>_<?php echo $section['id']; ?>">
-                                                                        <?php echo htmlspecialchars($section['name']); ?>
-                                                                        <small class="text-muted d-block">ID: <?php echo $section['id']; ?></small>
-                                                                    </label>
-                                                                </div>
-                                                                <?php endforeach; ?>
-                                                            </div>
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                                                <i class="bi bi-x-circle me-2"></i>Cancel
-                                                            </button>
-                                                            <button type="submit" class="btn btn-primary">
-                                                                <i class="bi bi-save me-2"></i>Save Assignments
-                                                            </button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Edit User Modal -->
-                                        <div class="modal fade" id="editModal<?php echo $user['id']; ?>" tabindex="-1" aria-hidden="true">
-                                            <div class="modal-dialog modal-dialog-centered">
-                                                <div class="modal-content">
-                                                    <form method="POST" class="edit-form">
-                                                        <input type="hidden" name="action" value="update_user">
-                                                        <input type="hidden" name="user_id" value="<?php echo $user['id']; ?>">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title">
-                                                                <i class="bi bi-pencil me-2"></i>
-                                                                Edit User - <?php echo htmlspecialchars($user['username']); ?>
-                                                            </h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            <div class="mb-3">
-                                                                <label class="form-label">Full Name *</label>
-                                                                <input type="text" name="full_name" class="form-control" 
-                                                                       value="<?php echo htmlspecialchars($user['full_name']); ?>" required>
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label">Email</label>
-                                                                <input type="email" name="email" class="form-control" 
-                                                                       value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>">
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label">Role *</label>
-                                                                <select name="role" class="form-select" required>
-                                                                    <option value="user" <?php echo $user['role'] === 'user' ? 'selected' : ''; ?>>User</option>
-                                                                    <option value="admin" <?php echo $user['role'] === 'admin' ? 'selected' : ''; ?>>Admin</option>
-                                                                </select>
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <div class="form-check form-switch">
-                                                                    <input class="form-check-input" type="checkbox" 
-                                                                           name="is_active" 
-                                                                           id="active<?php echo $user['id']; ?>"
-                                                                           <?php echo $user['is_active'] ? 'checked' : ''; ?>>
-                                                                    <label class="form-check-label" for="active<?php echo $user['id']; ?>">
-                                                                        Account Active
-                                                                    </label>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                                                <i class="bi bi-x-circle me-2"></i>Cancel
-                                                            </button>
-                                                            <button type="submit" class="btn btn-primary">
-                                                                <i class="bi bi-save me-2"></i>Update User
-                                                            </button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Reset Password Modal -->
-                                        <div class="modal fade" id="passwordModal<?php echo $user['id']; ?>" tabindex="-1" aria-hidden="true">
-                                            <div class="modal-dialog modal-dialog-centered">
-                                                <div class="modal-content">
-                                                    <form method="POST" class="password-form">
-                                                        <input type="hidden" name="action" value="reset_password">
-                                                        <input type="hidden" name="user_id" value="<?php echo $user['id']; ?>">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title">
-                                                                <i class="bi bi-key me-2"></i>
-                                                                Reset Password - <?php echo htmlspecialchars($user['username']); ?>
-                                                            </h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            <div class="mb-3">
-                                                                <label class="form-label">New Password *</label>
-                                                                <input type="password" name="new_password" class="form-control" required 
-                                                                       placeholder="Enter new password" minlength="6">
-                                                                <div class="form-text">
-                                                                    Password must be at least 6 characters long
-                                                                </div>
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label">Confirm Password *</label>
-                                                                <input type="password" name="confirm_password" class="form-control" required 
-                                                                       placeholder="Confirm new password">
-                                                            </div>
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                                                <i class="bi bi-x-circle me-2"></i>Cancel
-                                                            </button>
-                                                            <button type="submit" class="btn btn-warning">
-                                                                <i class="bi bi-key me-2"></i>Reset Password
-                                                            </button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <?php endwhile; ?>
-                                    </tbody>
-                                </table>
+                    <!-- Message Alert -->
+                    <?php if ($message): ?>
+                        <div class="alert alert-<?= $message_type ?>">
+                            <div class="alert-icon">
+                                <i class="bi <?= $message_type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
                             </div>
+                            <div class="alert-content">
+                                <strong><?= $message_type === 'success' ? 'Success!' : 'Error!' ?></strong>
+                                <?= htmlspecialchars($message) ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <!-- Users Card -->
+                    <div class="user-management-card">
+                        <div class="card-header">
+                            <h2><i class="bi bi-people"></i> System Users</h2>
+                            <button class="btn btn-primary" onclick="openCreateModal()">
+                                <i class="bi bi-person-plus"></i> Add New User
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <?php if ($users_result->num_rows > 0): ?>
+                                <div class="table-container">
+                                    <table class="user-management-table">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Username</th>
+                                                <th>Full Name</th>
+                                                <th>Email</th>
+                                                <th>Role</th>
+                                                <th>Status</th>
+                                                <th>Created</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php while ($user = $users_result->fetch_assoc()): ?>
+                                                <tr>
+                                                    <td><?= $user['id'] ?></td>
+                                                    <td>
+                                                        <strong><?= htmlspecialchars($user['username']) ?></strong>
+                                                        <?php if ($user['id'] == $_SESSION['user_id']): ?>
+                                                            <span class="badge badge-info" style="margin-left: 5px;">You</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <?= htmlspecialchars(trim($user['first_name'] . ' ' . $user['last_name'])) ?>
+                                                        <?php if (!empty($user['surname'])): ?>
+                                                            <br><small class="text-muted"><?= htmlspecialchars($user['surname']) ?></small>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <?php if (!empty($user['email'])): ?>
+                                                            <?= htmlspecialchars($user['email']) ?>
+                                                        <?php else: ?>
+                                                            <span class="text-muted">No email</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <?php 
+                                                        $role_class = 'badge-admin';
+                                                        if (isset($user['role_name'])) {
+                                                            $role_lower = strtolower($user['role_name']);
+                                                            if (strpos($role_lower, 'revenue') !== false) $role_class = 'badge-revenue';
+                                                            elseif (strpos($role_lower, 'customer') !== false) $role_class = 'badge-customer-care';
+                                                            elseif (strpos($role_lower, 'treatment') !== false) $role_class = 'badge-treatment';
+                                                            elseif (strpos($role_lower, 'accounts') !== false) $role_class = 'badge-accounts';
+                                                            elseif (strpos($role_lower, 'gis') !== false) $role_class = 'badge-gis';
+                                                            elseif (strpos($role_lower, 'nrw') !== false) $role_class = 'badge-nrw';
+                                                        }
+                                                        ?>
+                                                        <span class="badge-role <?= $role_class ?>">
+                                                            <?= isset($user['role_name']) ? htmlspecialchars($user['role_name']) : 'No Role' ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <?php if ($user['is_active']): ?>
+                                                            <span class="status-active">
+                                                                <i class="bi bi-check-circle"></i> Active
+                                                            </span>
+                                                        <?php else: ?>
+                                                            <span class="status-inactive">
+                                                                <i class="bi bi-x-circle"></i> Inactive
+                                                            </span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td><?= date('M d, Y', strtotime($user['created_at'])) ?></td>
+                                                    <td>
+                                                        <div class="user-action-buttons">
+                                                            <button class="btn-user-action btn-info" 
+                                                                    onclick="openEditModal(<?= $user['id'] ?>)">
+                                                                <i class="bi bi-pencil"></i> Edit
+                                                            </button>
+                                                            <button class="btn-user-action btn-warning" 
+                                                                    onclick="openResetModal(<?= $user['id'] ?>, '<?= htmlspecialchars($user['username'], ENT_QUOTES) ?>')"
+                                                                    <?= $user['id'] == $_SESSION['user_id'] ? 'disabled' : '' ?>>
+                                                                <i class="bi bi-key"></i> Reset
+                                                            </button>
+                                                            <a href="?toggle_active=<?= $user['id'] ?>" 
+                                                               class="btn-user-action btn-primary"
+                                                               onclick="return confirm('Are you sure you want to <?= $user['is_active'] ? 'deactivate' : 'activate' ?> this user?')"
+                                                               <?= $user['id'] == $_SESSION['user_id'] ? 'onclick="return false;" style="opacity: 0.5; cursor: not-allowed;"' : '' ?>>
+                                                                <i class="bi bi-power"></i> <?= $user['is_active'] ? 'Deactivate' : 'Activate' ?>
+                                                            </a>
+                                                            <a href="?delete=<?= $user['id'] ?>" 
+                                                               class="btn-user-action btn-danger"
+                                                               onclick="return confirm('Are you sure you want to delete this user? This action cannot be undone.')"
+                                                               <?= $user['id'] == $_SESSION['user_id'] ? 'onclick="return false;" style="opacity: 0.5; cursor: not-allowed;"' : '' ?>>
+                                                                <i class="bi bi-trash"></i> Delete
+                                                            </a>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            <?php endwhile; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php else: ?>
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">
+                                        <i class="bi bi-people"></i>
+                                    </div>
+                                    <h3>No Users Found</h3>
+                                    <p>No users have been created yet. Click the "Add New User" button to create the first user.</p>
+                                    <button class="btn btn-primary" onclick="openCreateModal()">
+                                        <i class="bi bi-person-plus"></i> Create First User
+                                    </button>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
             </div>
+        </main>
+    </div>
+
+    <!-- Create User Modal -->
+    <div class="modal-overlay" id="createModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-person-plus"></i> Create New User</h3>
+                <button class="modal-close" onclick="closeCreateModal()">&times;</button>
+            </div>
+            <form method="POST" action="" class="user-form" id="createUserForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="username" class="form-label">Username *</label>
+                        <input type="text" class="form-control" id="username" name="username" required 
+                               placeholder="Enter username">
+                        <small class="form-text">Username must be unique and contain only letters, numbers, and underscores.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password" class="form-label">Password *</label>
+                        <input type="password" class="form-control" id="password" name="password" required 
+                               placeholder="Enter password" minlength="6">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirm_password" class="form-label">Confirm Password *</label>
+                        <input type="password" class="form-control" id="confirm_password" name="confirm_password" required 
+                               placeholder="Confirm password">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="email" name="email" 
+                               placeholder="user@example.com">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="first_name" class="form-label">First Name</label>
+                                <input type="text" class="form-control" id="first_name" name="first_name" 
+                                       placeholder="First name">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="last_name" class="form-label">Last Name</label>
+                                <input type="text" class="form-control" id="last_name" name="last_name" 
+                                       placeholder="Last name">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="surname" class="form-label">Surname</label>
+                        <input type="text" class="form-control" id="surname" name="surname" 
+                               placeholder="Surname (optional)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="role_id" class="form-label">Role *</label>
+                        <select class="form-select form-control" id="role_id" name="role_id" required>
+                            <option value="">Select a role</option>
+                            <?php foreach ($roles_array as $role): ?>
+                                <option value="<?= $role['id'] ?>"><?= htmlspecialchars($role['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" checked>
+                        <label class="form-check-label" for="is_active">
+                            Active User
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                    <button type="submit" name="create_user" class="btn btn-primary">
+                        <i class="bi bi-person-plus"></i> Create User
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
-    
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Password validation
-            document.querySelectorAll('.password-form').forEach(form => {
-                form.addEventListener('submit', function(e) {
-                    const password = this.querySelector('[name="new_password"]').value;
-                    const confirmPassword = this.querySelector('[name="confirm_password"]').value;
-                    
-                    if (password !== confirmPassword) {
-                        e.preventDefault();
-                        alert('Passwords do not match!');
-                        return false;
-                    }
-                });
-            });
 
-            // Add smooth hover effects to table rows
-            const tableRows = document.querySelectorAll('.user-management-table tbody tr');
-            tableRows.forEach(row => {
-                row.addEventListener('mouseenter', () => {
-                    row.style.transform = 'translateX(4px)';
-                });
-                
-                row.addEventListener('mouseleave', () => {
-                    row.style.transform = 'translateX(0)';
-                });
+    <!-- Edit User Modal -->
+    <div class="modal-overlay" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-pencil"></i> Edit User</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <form method="POST" action="" class="user-form" id="editUserForm">
+                <input type="hidden" id="edit_user_id" name="user_id">
+                <div class="modal-body">
+                    <!-- User Details Display -->
+                    <div id="userDetailsDisplay" class="user-details-grid" style="display: none;">
+                        <div class="user-detail-item">
+                            <div class="detail-label">Username</div>
+                            <div class="detail-value" id="detail_username"></div>
+                        </div>
+                        <div class="user-detail-item">
+                            <div class="detail-label">Created</div>
+                            <div class="detail-value" id="detail_created"></div>
+                        </div>
+                        <div class="user-detail-item">
+                            <div class="detail-label">Last Login</div>
+                            <div class="detail-value" id="detail_last_login">Not available</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit_email" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="edit_email" name="email" 
+                               placeholder="user@example.com">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="edit_first_name" class="form-label">First Name</label>
+                                <input type="text" class="form-control" id="edit_first_name" name="first_name" 
+                                       placeholder="First name">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="edit_last_name" class="form-label">Last Name</label>
+                                <input type="text" class="form-control" id="edit_last_name" name="last_name" 
+                                       placeholder="Last name">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit_surname" class="form-label">Surname</label>
+                        <input type="text" class="form-control" id="edit_surname" name="surname" 
+                               placeholder="Surname (optional)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit_role_id" class="form-label">Role *</label>
+                        <select class="form-select form-control" id="edit_role_id" name="role_id" required>
+                            <option value="">Select a role</option>
+                            <?php foreach ($roles_array as $role): ?>
+                                <option value="<?= $role['id'] ?>"><?= htmlspecialchars($role['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="edit_is_active" name="is_active" value="1">
+                        <label class="form-check-label" for="edit_is_active">
+                            Active User
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                    <button type="submit" name="update_user" class="btn btn-primary">
+                        <i class="bi bi-save"></i> Update User
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div class="modal-overlay" id="resetModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-key"></i> Reset Password</h3>
+                <button class="modal-close" onclick="closeResetModal()">&times;</button>
+            </div>
+            <form method="POST" action="" class="user-form" id="resetPasswordForm">
+                <input type="hidden" id="reset_user_id" name="user_id">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <p>Reset password for user: <strong id="reset_username"></strong></p>
+                    </div>
+                    <div class="form-group">
+                        <label for="new_password" class="form-label">New Password *</label>
+                        <input type="password" class="form-control" id="new_password" name="new_password" required 
+                               placeholder="Enter new password" minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm_new_password" class="form-label">Confirm New Password *</label>
+                        <input type="password" class="form-control" id="confirm_new_password" name="confirm_password" required 
+                               placeholder="Confirm new password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Cancel</button>
+                    <button type="submit" name="reset_password" class="btn btn-primary">
+                        <i class="bi bi-key"></i> Reset Password
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Modal Functions
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('active');
+            document.getElementById('modalBackdrop').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('active');
+            document.getElementById('modalBackdrop').style.display = 'none';
+            document.getElementById('createUserForm').reset();
+            document.body.style.overflow = 'auto';
+        }
+
+        function openEditModal(userId) {
+            document.getElementById('editModal').classList.add('active');
+            document.getElementById('modalBackdrop').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            window.location.href = `?edit=${userId}`;
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.remove('active');
+            document.getElementById('modalBackdrop').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            if (window.location.href.includes('edit=')) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        function openResetModal(userId, username) {
+            document.getElementById('reset_user_id').value = userId;
+            document.getElementById('reset_username').textContent = username;
+            document.getElementById('resetModal').classList.add('active');
+            document.getElementById('modalBackdrop').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeResetModal() {
+            document.getElementById('resetModal').classList.remove('active');
+            document.getElementById('modalBackdrop').style.display = 'none';
+            document.getElementById('resetPasswordForm').reset();
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close modals on backdrop click
+        document.getElementById('modalBackdrop')?.addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeCreateModal();
+                closeEditModal();
+                closeResetModal();
+            }
+        });
+
+        // Close modals on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeCreateModal();
+                closeEditModal();
+                closeResetModal();
+            }
+        });
+
+        // Close modals on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.classList.remove('active');
+                    document.getElementById('modalBackdrop').style.display = 'none';
+                    document.body.style.overflow = 'auto';
+                }
+            });
+        });
+
+        // Form validation
+        document.getElementById('createUserForm')?.addEventListener('submit', function(e) {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            
+            if (password !== confirmPassword) {
+                e.preventDefault();
+                alert('Passwords do not match!');
+                return false;
+            }
+            
+            if (password.length < 6) {
+                e.preventDefault();
+                alert('Password must be at least 6 characters long!');
+                return false;
+            }
+            
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+            submitBtn.disabled = true;
+            
+            setTimeout(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }, 3000);
+        });
+
+        document.getElementById('resetPasswordForm')?.addEventListener('submit', function(e) {
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_new_password').value;
+            
+            if (newPassword !== confirmPassword) {
+                e.preventDefault();
+                alert('Passwords do not match!');
+                return false;
+            }
+            
+            if (newPassword.length < 6) {
+                e.preventDefault();
+                alert('Password must be at least 6 characters long!');
+                return false;
+            }
+            
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
+            submitBtn.disabled = true;
+            
+            setTimeout(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }, 3000);
+        });
+
+        document.getElementById('editUserForm')?.addEventListener('submit', function(e) {
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
+            submitBtn.disabled = true;
+            
+            setTimeout(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }, 3000);
+        });
+
+        // If edit user data is available, populate the edit modal
+        <?php if ($edit_user): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                if (document.getElementById('edit_user_id')) {
+                    document.getElementById('edit_user_id').value = <?= $edit_user['id'] ?>;
+                    document.getElementById('edit_email').value = '<?= addslashes($edit_user['email'] ?? '') ?>';
+                    document.getElementById('edit_first_name').value = '<?= addslashes($edit_user['first_name'] ?? '') ?>';
+                    document.getElementById('edit_last_name').value = '<?= addslashes($edit_user['last_name'] ?? '') ?>';
+                    document.getElementById('edit_surname').value = '<?= addslashes($edit_user['surname'] ?? '') ?>';
+                    document.getElementById('edit_role_id').value = <?= $edit_user['role_id'] ?>;
+                    document.getElementById('edit_is_active').checked = <?= $edit_user['is_active'] ? 'true' : 'false' ?>;
+                    
+                    document.getElementById('detail_username').textContent = '<?= addslashes($edit_user['username']) ?>';
+                    document.getElementById('detail_created').textContent = '<?= date('M d, Y', strtotime($edit_user['created_at'])) ?>';
+                    document.getElementById('userDetailsDisplay').style.display = 'grid';
+                    
+                    document.getElementById('editModal').classList.add('active');
+                    document.getElementById('modalBackdrop').style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                }
+            }, 100);
+        });
+        <?php endif; ?>
+
+        // Remove edit parameter on page load if no edit_user data
+        <?php if (!$edit_user): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.location.href.includes('edit=')) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+        <?php endif; ?>
+
+        // Sidebar toggle functionality
+        document.getElementById('sidebarToggle')?.addEventListener('click', function() {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) {
+                sidebar.classList.toggle('collapsed');
+            }
+        });
+
+        // Auto-dismiss alerts after 5 seconds
+        document.addEventListener('DOMContentLoaded', function() {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                setTimeout(() => {
+                    alert.style.opacity = '0';
+                    alert.style.transform = 'translateY(-20px)';
+                    setTimeout(() => alert.remove(), 300);
+                }, 5000);
             });
         });
     </script>
 </body>
 </html>
-<?php $conn->close(); ?>

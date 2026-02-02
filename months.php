@@ -1,10 +1,29 @@
 <?php
-// months.php - Month Management Page
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// Start session FIRST
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once 'db.php';
 require_once 'auth_functions.php';
+require_once 'role_functions.php';
 
 // Require login
-requireLogin();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+
+
+// Check if user is admin - only admins should access month management
+if (!isAdmin()) {
+    header("Location: index.php");
+    exit();
+}
 
 // Initialize variables
 $success = '';
@@ -184,7 +203,8 @@ if (!$months_result) {
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <!-- Global CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -197,175 +217,243 @@ if (!$months_result) {
         <div class="main-content">
             <div class="page-content">
                 <div class="content-wrapper">
-                        <div class="container">
-                            <!-- Page Header -->
-                            <div class="page-header">
-                                <h1>Month Management</h1>
-                                <p>Create and manage reporting periods for water system data collection</p>
+                    <div class="container">
+                        <!-- Page Header -->
+                        <div class="page-header">
+                            <h1>📅 Month Management</h1>
+                            <p>Create and manage reporting periods for water system data collection</p>
+                            <div class="admin-badge">
+                                <i class="bi bi-shield-check"></i> Administrator Access
                             </div>
+                        </div>
 
-                            <!-- Success Alert -->
-                            <?php if ($success): ?>
-                                <div class="alert alert-success">
-                                    <span class="alert-icon">✅</span>
-                                    <div>
-                                        <strong>Success!</strong><br>
-                                        <?php echo htmlspecialchars($success); ?>
-                                    </div>
+                        <!-- Success Alert -->
+                        <?php if ($success): ?>
+                            <div class="alert alert-success">
+                                <span class="alert-icon">✅</span>
+                                <div>
+                                    <strong>Success!</strong><br>
+                                    <?php echo htmlspecialchars($success); ?>
                                 </div>
-                            <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
 
-                            <!-- Error Alert -->
-                            <?php if ($error): ?>
-                                <div class="alert alert-danger">
-                                    <span class="alert-icon">⚠️</span>
-                                    <div>
-                                        <strong>Error!</strong><br>
-                                        <?php echo htmlspecialchars($error); ?>
-                                    </div>
+                        <!-- Error Alert -->
+                        <?php if ($error): ?>
+                            <div class="alert alert-danger">
+                                <span class="alert-icon">⚠️</span>
+                                <div>
+                                    <strong>Error!</strong><br>
+                                    <?php echo htmlspecialchars($error); ?>
                                 </div>
-                            <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
 
-                            <!-- Create Month Card -->
-                            <div class="card">
-                                <div class="card-header">
-                                    <h2>➕ Create New Month</h2>
-                                </div>
-                                <div class="card-body">
-                                    <form method="POST" id="createMonthForm">
-                                        <input type="hidden" name="action" value="create_month">
+                        <!-- Create Month Card -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="bi bi-plus-circle"></i> Create New Month</h2>
+                            </div>
+                            <div class="card-body">
+                                <form method="POST" id="createMonthForm">
+                                    <input type="hidden" name="action" value="create_month">
+                                    
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">Month Name *</label>
+                                            <input type="text" 
+                                                   name="name" 
+                                                   class="form-control" 
+                                                   placeholder="e.g., December 2024" 
+                                                   required>
+                                            <span class="form-hint">Display name for the reporting period</span>
+                                        </div>
                                         
-                                        <div class="form-grid">
-                                            <div class="form-group">
-                                                <label class="form-label">Month Name *</label>
-                                                <input type="text" 
-                                                       name="name" 
-                                                       class="form-control" 
-                                                       placeholder="e.g., December 2024" 
-                                                       required>
-                                                <span class="form-hint">Display name for the reporting period</span>
-                                            </div>
-                                            
-                                            <div class="form-group">
-                                                <label class="form-label">Start Date *</label>
-                                                <input type="date" 
-                                                       name="start_date" 
-                                                       class="form-control" 
-                                                       required
-                                                       onchange="updateEndDate()">
-                                                <span class="form-hint">First day of the reporting period</span>
-                                            </div>
-                                            
-                                            <div class="form-group">
-                                                <label class="form-label">End Date *</label>
-                                                <input type="date" 
-                                                       name="end_date" 
-                                                       class="form-control" 
-                                                       required>
-                                                <span class="form-hint">Last day of the reporting period (auto-set)</span>
-                                            </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Start Date *</label>
+                                            <input type="date" 
+                                                   name="start_date" 
+                                                   class="form-control" 
+                                                   required
+                                                   onchange="updateEndDate()">
+                                            <span class="form-hint">First day of the reporting period</span>
                                         </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">End Date *</label>
+                                            <input type="date" 
+                                                   name="end_date" 
+                                                   class="form-control" 
+                                                   required>
+                                            <span class="form-hint">Last day of the reporting period (auto-set)</span>
+                                        </div>
+                                    </div>
 
+                                    <div class="form-submit">
                                         <button type="submit" class="btn btn-primary">
-                                            ➕ Create Month
+                                            <i class="bi bi-plus-circle"></i> Create Month
                                         </button>
-                                    </form>
-                                </div>
+                                    </div>
+                                </form>
                             </div>
+                        </div>
 
-                            <!-- Months List Card -->
-                            <div class="card">
-                                <div class="card-header">
-                                    <h2>📋 Existing Months</h2>
-                                </div>
-                                <div class="card-body">
-                                    <?php if ($months_result->num_rows === 0): ?>
-                                        <div class="empty-state">
-                                            <div class="empty-state-icon">📅</div>
-                                            <h3>No Months Created Yet</h3>
-                                            <p>Start by creating your first reporting month using the form above</p>
+                        <!-- Months List Card -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="bi bi-calendar-month"></i> Existing Months</h2>
+                                <span class="badge badge-info"><?php echo $months_result->num_rows; ?> months</span>
+                            </div>
+                            <div class="card-body">
+                                <?php if ($months_result->num_rows === 0): ?>
+                                    <div class="empty-state">
+                                        <div class="empty-state-icon">
+                                            <i class="bi bi-calendar-x"></i>
                                         </div>
-                                    <?php else: ?>
-                                        <div class="table-container">
-                                            <table class="table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>ID</th>
-                                                        <th>Month Details</th>
-                                                        <th>Reporting Period</th>
-                                                        <th>Status</th>
-                                                        <th>Created</th>
-                                                        <th>Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php while ($month = $months_result->fetch_assoc()): 
-                                                        $is_new = isset($_SESSION['last_created_month']) && $_SESSION['last_created_month'] == $month['id'];
-                                                    ?>
-                                                    <tr <?php echo $is_new ? 'class="new-month-added"' : ''; ?>>
-                                                        <td>
-                                                            <span class="badge badge-secondary">#<?php echo $month['id']; ?></span>
-                                                        </td>
-                                                        <td>
-                                                            <strong><?php echo htmlspecialchars($month['name'] ?? date('F Y', strtotime($month['month_year']))); ?></strong>
+                                        <h3>No Months Created Yet</h3>
+                                        <p>Start by creating your first reporting month using the form above</p>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>ID</th>
+                                                    <th>Month Details</th>
+                                                    <th>Reporting Period</th>
+                                                    <th>Status</th>
+                                                    <th>Created</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php while ($month = $months_result->fetch_assoc()): 
+                                                    $is_new = isset($_SESSION['last_created_month']) && $_SESSION['last_created_month'] == $month['id'];
+                                                    $is_deleted = isset($_SESSION['last_deleted_month']) && $_SESSION['last_deleted_month'] == $month['id'];
+                                                ?>
+                                                <tr <?php echo $is_new ? 'class="new-row"' : ($is_deleted ? 'class="deleted-row"' : ''); ?>>
+                                                    <td>
+                                                        <span class="badge badge-secondary">#<?php echo $month['id']; ?></span>
+                                                    </td>
+                                                    <td>
+                                                        <strong><?php echo htmlspecialchars($month['name'] ?? date('F Y', strtotime($month['month_year']))); ?></strong>
+                                                        <br>
+                                                        <small class="text-muted">
+                                                            <?php echo date('F Y', strtotime($month['month_year'])); ?>
+                                                        </small>
+                                                    </td>
+                                                    <td>
+                                                        <div class="date-range">
+                                                            <span class="date-label"><i class="bi bi-calendar-check"></i> Start:</span>
+                                                            <?php echo date('M d, Y', strtotime($month['start_date'])); ?>
                                                             <br>
-                                                            <small style="color: rgba(255,255,255,0.6);">
-                                                                <?php echo date('F Y', strtotime($month['month_year'])); ?>
-                                                            </small>
-                                                        </td>
-                                                        <td>
-                                                            📅 <?php echo date('M d, Y', strtotime($month['start_date'])); ?>
-                                                            <br>
-                                                            ❌ <?php echo date('M d, Y', strtotime($month['end_date'])); ?>
-                                                        </td>
-                                                        <td>
-                                                            <span class="status-badge status-<?php echo $month['status']; ?>">
-                                                                ● <?php echo strtoupper($month['status']); ?>
+                                                            <span class="date-label"><i class="bi bi-calendar-x"></i> End:</span>
+                                                            <?php echo date('M d, Y', strtotime($month['end_date'])); ?>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <?php if ($month['status'] === 'draft'): ?>
+                                                            <span class="status-badge status-draft">
+                                                                <i class="bi bi-pencil"></i> Draft
                                                             </span>
-                                                        </td>
-                                                        <td>
+                                                        <?php elseif ($month['status'] === 'submitted'): ?>
+                                                            <span class="status-badge status-submitted">
+                                                                <i class="bi bi-check-circle"></i> Submitted
+                                                            </span>
+                                                        <?php else: ?>
+                                                            <span class="status-badge">
+                                                                <?php echo ucfirst($month['status']); ?>
+                                                            </span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <div class="created-info">
                                                             <?php echo date('M d, Y', strtotime($month['created_at'])); ?>
                                                             <br>
-                                                            <small style="color: rgba(255,255,255,0.6);">
-                                                                by <?php echo htmlspecialchars($month['created_by']); ?>
+                                                            <small class="text-muted">
+                                                                <i class="bi bi-person"></i> <?php echo htmlspecialchars($month['created_by']); ?>
                                                             </small>
-                                                        </td>
-                                                        <td>
-                                                            <div class="action-buttons">
-                                                                <?php if ($month['status'] === 'draft'): ?>
-                                                                    <a href="add_data.php?month_id=<?php echo $month['id']; ?>" 
-                                                                       class="btn btn-info btn-sm">
-                                                                        ✏️ Enter Data
-                                                                    </a>
-                                                                    <form method="POST" 
-                                                                          onsubmit="return confirm('Are you sure you want to delete this month?');"
-                                                                          style="display: inline;">
-                                                                        <input type="hidden" name="action" value="delete_month">
-                                                                        <input type="hidden" name="month_id" value="<?php echo $month['id']; ?>">
-                                                                        <button type="submit" class="btn btn-danger btn-sm">
-                                                                            🗑️ Delete
-                                                                        </button>
-                                                                    </form>
-                                                                <?php else: ?>
-                                                                    <a href="add_data.php?month_id=<?php echo $month['id']; ?>" 
-                                                                       class="btn btn-info btn-sm">
-                                                                        👁️ View Data
-                                                                    </a>
-                                                                    <span style="font-size: 12px; color: rgba(255,255,255,0.6);">
-                                                                        🔒 Submitted
-                                                                    </span>
-                                                                <?php endif; ?>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                    <?php endwhile; 
-                                                    unset($_SESSION['last_created_month']);
-                                                    unset($_SESSION['last_deleted_month']);
-                                                    ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    <?php endif; ?>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="action-buttons">
+                                                            <?php if ($month['status'] === 'draft'): ?>
+                                                                <a href="add_data.php?month_id=<?php echo $month['id']; ?>" 
+                                                                   class="btn btn-info btn-sm" 
+                                                                   title="Enter data for this month">
+                                                                    <i class="bi bi-pencil"></i> Enter Data
+                                                                </a>
+                                                                <form method="POST" 
+                                                                      onsubmit="return confirm('Are you sure you want to delete this month? This action cannot be undone.');"
+                                                                      style="display: inline;">
+                                                                    <input type="hidden" name="action" value="delete_month">
+                                                                    <input type="hidden" name="month_id" value="<?php echo $month['id']; ?>">
+                                                                    <button type="submit" class="btn btn-danger btn-sm" title="Delete this month">
+                                                                        <i class="bi bi-trash"></i> Delete
+                                                                    </button>
+                                                                </form>
+                                                            <?php else: ?>
+                                                                <a href="add_data.php?month_id=<?php echo $month['id']; ?>" 
+                                                                   class="btn btn-info btn-sm" 
+                                                                   title="View data for this month">
+                                                                    <i class="bi bi-eye"></i> View Data
+                                                                </a>
+                                                                <span class="text-muted small" style="display: block; margin-top: 5px;">
+                                                                    <i class="bi bi-lock"></i> Submitted (read-only)
+                                                                </span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                <?php endwhile; 
+                                                // Clear session flags
+                                                unset($_SESSION['last_created_month']);
+                                                unset($_SESSION['last_deleted_month']);
+                                                ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <!-- Statistics Card -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2><i class="bi bi-graph-up"></i> Month Statistics</h2>
+                            </div>
+                            <div class="card-body">
+                                <?php
+                                // Get statistics
+                                $stats_query = "
+                                    SELECT 
+                                        COUNT(*) as total_months,
+                                        SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_months,
+                                        SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted_months,
+                                        MIN(start_date) as earliest_month,
+                                        MAX(end_date) as latest_month
+                                    FROM months
+                                ";
+                                $stats_result = $conn->query($stats_query);
+                                $stats = $stats_result->fetch_assoc();
+                                ?>
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <div class="stat-value"><?php echo $stats['total_months']; ?></div>
+                                        <div class="stat-label">Total Months</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value"><?php echo $stats['draft_months']; ?></div>
+                                        <div class="stat-label">Draft Months</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value"><?php echo $stats['submitted_months']; ?></div>
+                                        <div class="stat-label">Submitted Months</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value"><?php echo date('M Y', strtotime($stats['latest_month'])); ?></div>
+                                        <div class="stat-label">Latest Month</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -390,6 +478,13 @@ if (!$months_result) {
                 const lastDayStr = lastDay.toISOString().split('T')[0];
                 
                 endDateInput.value = lastDayStr;
+                
+                // Auto-generate month name if empty
+                const nameInput = document.querySelector('input[name="name"]');
+                if (!nameInput.value.trim()) {
+                    const monthName = startDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+                    nameInput.value = monthName;
+                }
             }
         }
 
@@ -410,21 +505,26 @@ if (!$months_result) {
             startDateInput.value = firstDay.toISOString().split('T')[0];
             endDateInput.value = lastDay.toISOString().split('T')[0];
             
-            nameInput.focus();
-            
             // Auto-generate month name
-            startDateInput.addEventListener('change', function() {
-                if (!nameInput.value && this.value) {
-                    const date = new Date(this.value);
-                    nameInput.value = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-                }
-            });
+            if (!nameInput.value.trim()) {
+                nameInput.value = firstDay.toLocaleString('default', { month: 'long', year: 'numeric' });
+            }
+            
+            nameInput.focus();
             
             // Form validation
             document.getElementById('createMonthForm').addEventListener('submit', function(e) {
                 const submitBtn = this.querySelector('button[type="submit"]');
                 submitBtn.innerHTML = '<span class="spinner"></span> Creating...';
                 submitBtn.disabled = true;
+            });
+            
+            // Highlight new/updated rows
+            const newRows = document.querySelectorAll('.new-row, .deleted-row');
+            newRows.forEach(row => {
+                setTimeout(() => {
+                    row.classList.remove('new-row', 'deleted-row');
+                }, 5000);
             });
         });
     </script>

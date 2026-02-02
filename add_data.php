@@ -1,10 +1,19 @@
 <?php
-// data_entry.php - Complete Data Entry Page
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 require_once 'db.php';
-require_once 'auth_functions.php';
 
-// Require login
-requireLogin();
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    $_SESSION['redirect_url'] = $_SERVER['REQUEST_URI'];
+    header('Location: login.php');
+    exit();
+}
 
 // Get month_id from URL or redirect
 if (!isset($_GET['month_id'])) {
@@ -27,6 +36,157 @@ if (!$month) {
 // Check if month is already submitted
 $is_submitted = ($month['status'] === 'submitted');
 
+// Get user info and role
+$user_id = $_SESSION['user_id'];
+$user_query = $conn->prepare("
+    SELECT u.*, r.name as role_name, r.description as role_description 
+    FROM users u 
+    LEFT JOIN roles r ON u.role_id = r.id 
+    WHERE u.id = ?
+");
+$user_query->bind_param("i", $user_id);
+$user_query->execute();
+$user_info = $user_query->get_result()->fetch_assoc();
+
+if (!$user_info) {
+    session_destroy();
+    header('Location: login.php');
+    exit();
+}
+
+$role_id = $user_info['role_id'];
+$is_admin = ($user_info['role_name'] === 'admin');
+
+
+
+// Function to get user's categories with parameters
+function getUserCategoriesWithParameters($role_id, $is_admin) {
+    global $conn;
+    
+    if ($is_admin) {
+        // Admin gets all categories
+        $query = "
+            SELECT DISTINCT pc.* 
+            FROM parameter_categories pc
+            JOIN parameters p ON pc.id = p.category_id
+            ORDER BY pc.display_order
+        ";
+        $result = $conn->query($query);
+    } else {
+        // Regular users get only categories with assigned parameters
+        $stmt = $conn->prepare("
+            SELECT DISTINCT pc.* 
+            FROM parameter_categories pc
+            JOIN parameters p ON pc.id = p.category_id
+            JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
+            WHERE rpa.role_id = ?
+            ORDER BY pc.display_order
+        ");
+        $stmt->bind_param("i", $role_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+    }
+    
+    $categories = [];
+    while ($row = $result->fetch_assoc()) {
+        $categories[] = $row;
+    }
+    
+    if (!$is_admin && isset($stmt)) {
+        $stmt->close();
+    }
+    
+    // Get parameters for each category
+    $categories_with_params = [];
+    foreach ($categories as $category) {
+        if ($is_admin) {
+            $stmt = $conn->prepare("
+                SELECT p.* 
+                FROM parameters p 
+                WHERE p.category_id = ? 
+                ORDER BY p.code
+            ");
+            $stmt->bind_param("i", $category['id']);
+        } else {
+            $stmt = $conn->prepare("
+                SELECT p.* 
+                FROM parameters p
+                JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
+                WHERE rpa.role_id = ? AND p.category_id = ?
+                ORDER BY p.code
+            ");
+            $stmt->bind_param("ii", $role_id, $category['id']);
+        }
+        
+        $stmt->execute();
+        $params_result = $stmt->get_result();
+        
+        $parameters = [];
+        while ($param = $params_result->fetch_assoc()) {
+            $parameters[] = $param;
+        }
+        
+        if (!empty($parameters)) {
+            $categories_with_params[] = [
+                'category' => $category,
+                'parameters' => $parameters
+            ];
+        }
+        
+        $stmt->close();
+    }
+    
+    return $categories_with_params;
+}
+
+// Function to check if section is saved
+function isSectionSaved($month_id, $category_id, $role_id, $is_admin) {
+    global $conn;
+    
+    // Get parameters for this category that user has access to
+    if ($is_admin) {
+        $stmt = $conn->prepare("
+            SELECT p.id 
+            FROM parameters p 
+            WHERE p.category_id = ?
+        ");
+        $stmt->bind_param("i", $category_id);
+    } else {
+        $stmt = $conn->prepare("
+            SELECT p.id 
+            FROM parameters p
+            JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
+            WHERE rpa.role_id = ? AND p.category_id = ?
+        ");
+        $stmt->bind_param("ii", $role_id, $category_id);
+    }
+    
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $param_ids = [];
+    while ($row = $result->fetch_assoc()) {
+        $param_ids[] = $row['id'];
+    }
+    $stmt->close();
+    
+    if (empty($param_ids)) return false;
+    
+    // Check if any of these parameters have data
+    $param_ids_str = implode(',', $param_ids);
+    $check_stmt = $conn->prepare("
+        SELECT COUNT(*) as saved_count 
+        FROM monthly_data 
+        WHERE month_id = ? AND parameter_id IN ($param_ids_str)
+    ");
+    $check_stmt->bind_param("i", $month_id);
+    $check_stmt->execute();
+    $check_result = $check_stmt->get_result()->fetch_assoc();
+    $check_stmt->close();
+    
+    return $check_result && $check_result['saved_count'] > 0;
+}
+
 // Handle form submission
 $success = null;
 $error = null;
@@ -35,28 +195,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$is_submitted) {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'save_section') {
-        $section_id = intval($_POST['section_id']);
+        $category_id = intval($_POST['category_id']);
         $data = $_POST['data'] ?? [];
         
         $conn->begin_transaction();
         try {
             foreach($data as $code => $value) {
-                $stmt = $conn->prepare("SELECT p.id, p.category_id FROM parameters p WHERE p.code = ?");
+                // Get parameter ID
+                $stmt = $conn->prepare("SELECT p.id FROM parameters p WHERE p.code = ?");
                 $stmt->bind_param("s", $code);
                 $stmt->execute();
                 $result = $stmt->get_result();
                 $param = $result->fetch_assoc();
                 
                 if ($param) {
-                    if (!canAccessParameter($conn, $_SESSION['user_id'], $param['id'])) {
+                    // Check if user has access to this parameter
+                    if (!hasParameterAccess($param['id'], $role_id, $is_admin)) {
                         throw new Exception("You don't have permission to edit parameter: $code");
                     }
                     
-                    $stmt = $conn->prepare("INSERT INTO monthly_data (month_id, parameter_id, value) 
-                            VALUES (?, ?, ?)
-                            ON DUPLICATE KEY UPDATE value = VALUES(value)");
+                    // Insert or update data
+                    $stmt = $conn->prepare("
+                        INSERT INTO monthly_data (month_id, parameter_id, value) 
+                        VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE value = VALUES(value)
+                    ");
                     $stmt->bind_param("iis", $month_id, $param['id'], $value);
-                    $stmt->execute();
+                    if (!$stmt->execute()) {
+                        throw new Exception("Error saving parameter $code");
+                    }
                 }
             }
             $conn->commit();
@@ -65,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$is_submitted) {
             $conn->rollback();
             $error = "Error saving section: " . $e->getMessage();
         }
-    } elseif ($action === 'submit_final' && isAdmin()) {
+    } elseif ($action === 'submit_final' && $is_admin) {
         $stmt = $conn->prepare("UPDATE months SET status = 'submitted' WHERE id = ?");
         $stmt->bind_param("i", $month_id);
         
@@ -81,10 +248,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$is_submitted) {
 
 // Get existing data
 $existing_data = [];
-$data_query = $conn->prepare("SELECT p.code, md.value 
-              FROM monthly_data md
-              JOIN parameters p ON md.parameter_id = p.id
-              WHERE md.month_id = ?");
+$data_query = $conn->prepare("
+    SELECT p.code, md.value 
+    FROM monthly_data md
+    JOIN parameters p ON md.parameter_id = p.id
+    WHERE md.month_id = ?
+");
 $data_query->bind_param("i", $month_id);
 $data_query->execute();
 $result = $data_query->get_result();
@@ -93,53 +262,28 @@ while($row = $result->fetch_assoc()) {
     $existing_data[$row['code']] = $row['value'];
 }
 
-// Get sections
-$sections = getUserSections($conn, $_SESSION['user_id']);
-$sections_with_params = [];
-foreach($sections as $section) {
-    $section['parameters'] = getUserParametersForSection($conn, $_SESSION['user_id'], $section['id']);
-    if (!empty($section['parameters']) || isAdmin()) {
-        $sections_with_params[] = $section;
+// Get user's categories with parameters
+$categories_with_params = getUserCategoriesWithParameters($role_id, $is_admin);
+
+// Calculate progress
+$total_categories = count($categories_with_params);
+$saved_categories = 0;
+
+foreach ($categories_with_params as $category_data) {
+    if (isSectionSaved($month_id, $category_data['category']['id'], $role_id, $is_admin)) {
+        $saved_categories++;
     }
 }
 
-function getSavedSections($month_id, $conn, $user_id) {
-    if (isAdmin()) {
-        $sections = getAllSections($conn);
-    } else {
-        $sections = getUserSections($conn, $user_id);
-    }
-    
-    $section_ids = array_column($sections, 'id');
-    if (empty($section_ids)) return [];
-    
-    $ids_str = implode(',', $section_ids);
-    $query = "SELECT DISTINCT pc.id 
-              FROM monthly_data md 
-              JOIN parameters p ON md.parameter_id = p.id 
-              JOIN parameter_categories pc ON p.category_id = pc.id 
-              WHERE md.month_id = ? AND pc.id IN ($ids_str)";
-    
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("i", $month_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $saved_sections = [];
-    while($row = $result->fetch_assoc()) {
-        $saved_sections[] = $row['id'];
-    }
-    return $saved_sections;
+// Get user full name
+$full_name = trim(($user_info['first_name'] ?? '') . ' ' . ($user_info['last_name'] ?? ''));
+if (empty($full_name)) {
+    $full_name = $user_info['username'];
 }
 
-$saved_sections = getSavedSections($month_id, $conn, $_SESSION['user_id']);
-$total_sections = count($sections_with_params);
-$saved_count = count(array_intersect($saved_sections, array_column($sections_with_params, 'id')));
-
-$user_info = getUserInfo($conn, $_SESSION['user_id']);
+// Include navigation
 require 'nav_bar.php';
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -149,9 +293,11 @@ require 'nav_bar.php';
     
     <!-- External CSS -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+  
 </head>
-<body>
+<body class="data-entry-page">
     <!-- Water Background -->
     <div class="water-bg">
         <div class="water-wave"></div>
@@ -159,6 +305,7 @@ require 'nav_bar.php';
         <div class="water-wave"></div>
     </div>
     
+    <!-- Main Container -->
     <div class="main-container">
         <?php include 'nav_bar.php'; ?>
         
@@ -169,7 +316,7 @@ require 'nav_bar.php';
                     <div class="alert-container">
                         <?php if ($success): ?>
                             <div class="alert alert-success">
-                                <div class="alert-icon">✓</div>
+                                <div class="alert-icon"><i class="fas fa-check-circle"></i></div>
                                 <div class="alert-content">
                                     <div class="alert-heading">Success!</div>
                                     <p><?php echo htmlspecialchars($success); ?></p>
@@ -179,7 +326,7 @@ require 'nav_bar.php';
 
                         <?php if ($error): ?>
                             <div class="alert alert-danger">
-                                <div class="alert-icon">⚠️</div>
+                                <div class="alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
                                 <div class="alert-content">
                                     <div class="alert-heading">Error!</div>
                                     <p><?php echo htmlspecialchars($error); ?></p>
@@ -192,104 +339,112 @@ require 'nav_bar.php';
                     <div class="user-info-card">
                         <div class="user-info-header">
                             <div class="user-avatar">
-                                <?php echo strtoupper(substr($user_info['full_name'], 0, 1)); ?>
+                                <?php echo strtoupper(substr($full_name, 0, 1)); ?>
                             </div>
-                            <div style="flex: 1;">
-                                <h5><?php echo htmlspecialchars($user_info['full_name']); ?></h5>
+                            <div class="user-info-content">
+                                <h5><?php echo htmlspecialchars($full_name); ?></h5>
                                 <div>
-                                    <span class="user-role">
-                                        <?php echo isAdmin() ? 'Administrator' : 'Data Entry'; ?>
+                                    <span class="badge badge-info">
+                                        <i class="fas fa-user-tag"></i> <?php echo htmlspecialchars($user_info['role_name'] ?? 'User'); ?>
                                     </span>
-                                    <span style="color: var(--text-tertiary);">
-                                        👤 <?php echo htmlspecialchars($user_info['username']); ?>
+                                    <span class="text-muted ml-2">
+                                        <i class="fas fa-user"></i> @<?php echo htmlspecialchars($user_info['username']); ?>
                                     </span>
                                 </div>
                             </div>
-                            <div style="text-align: right;">
-                                <div style="color: var(--text-primary); font-weight: 700; margin-bottom: var(--spacing-xs);">
-                                    <?php echo count($sections_with_params); ?> Sections Assigned
+                            <div class="user-info-stats">
+                                <div class="stat-label mb-1">
+                                    <strong><?php echo count($categories_with_params); ?></strong> Sections Assigned
                                 </div>
                                 <div class="progress-label">
                                     <span>Progress</span>
-                                    <span><?php echo $saved_count; ?> / <?php echo $total_sections; ?></span>
+                                    <span><?php echo $saved_categories; ?> / <?php echo $total_categories; ?></span>
                                 </div>
                                 <div class="progress-indicator">
-                                    <div class="progress-fill" style="width: <?php echo $total_sections > 0 ? ($saved_count / $total_sections * 100) : 0; ?>%"></div>
+                                    <div class="progress-fill" style="width: <?php echo $total_categories > 0 ? ($saved_categories / $total_categories * 100) : 0; ?>%"></div>
                                 </div>
                             </div>
                         </div>
+                        <?php if ($user_info['role_description']): ?>
+                            <div class="permission-note mt-3">
+                                <i class="fas fa-info-circle"></i> <strong>Role Description:</strong> <?php echo htmlspecialchars($user_info['role_description']); ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- Month Header -->
                     <div class="month-header-card">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: var(--spacing-md);">
-                            <div>
-                                <h2>📝 Monthly Data Entry</h2>
+                        <div class="month-header-content">
+                            <div class="month-header-text">
+                                <h2><i class="fas fa-edit"></i> Monthly Data Entry</h2>
                                 <div class="month-period">
-                                    📅 <?php echo htmlspecialchars($month['name']); ?>
+                                    <i class="fas fa-calendar-alt"></i> <?php echo htmlspecialchars($month['name']); ?>
                                     <?php if ($month['start_date']): ?>
-                                        <span style="margin-left: var(--spacing-md); color: var(--text-tertiary);">
-                                            🕐 <?php echo date('M d, Y', strtotime($month['start_date'])); ?> - <?php echo date('M d, Y', strtotime($month['end_date'])); ?>
+                                        <span class="ml-3">
+                                            <i class="fas fa-clock"></i> <?php echo date('M d, Y', strtotime($month['start_date'])); ?> - <?php echo date('M d, Y', strtotime($month['end_date'])); ?>
                                         </span>
                                     <?php endif; ?>
                                 </div>
                             </div>
-                            <span class="status-badge status-<?php echo $is_submitted ? 'submitted' : ($saved_count == $total_sections ? 'saved' : 'pending'); ?>">
+                            <span class="status-badge status-<?php echo $is_submitted ? 'submitted' : ($saved_categories == $total_categories ? 'saved' : 'pending'); ?>">
                                 <?php echo strtoupper($month['status']); ?>
                             </span>
                         </div>
                         
                         <?php if ($is_submitted): ?>
                             <div class="read-only-banner">
-                                🔒
+                                <i class="fas fa-lock fa-lg"></i>
                                 <div>
                                     <h5>Read-Only Mode</h5>
                                     <p>This month has been submitted and cannot be edited.</p>
                                 </div>
                             </div>
                         <?php endif; ?>
+                        
+                        <?php if (!$is_admin): ?>
+                            <div class="permission-note">
+                                <i class="fas fa-exclamation-triangle"></i> <strong>Note:</strong> You can only edit parameters assigned to your role. 
+                                Other sections are hidden from view.
+                            </div>
+                        <?php endif; ?>
                     </div>
 
-                    <?php if (empty($sections_with_params)): ?>
+                    <?php if (empty($categories_with_params)): ?>
                         <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
-                            <h4>No Parameters Assigned</h4>
-                            <p>You don't have access to any data entry parameters.<br>Please contact your system administrator.</p>
+                            <div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                            <h4>No Parameters Assigned to Your Role</h4>
+                            <p>Your role "<?php echo htmlspecialchars($user_info['role_name'] ?? 'Unknown'); ?>" doesn't have access to any data entry parameters.<br>Please contact your system administrator.</p>
                         </div>
                     <?php else: ?>
-                        <!-- Sections -->
-                        <?php foreach($sections_with_params as $index => $section): 
-                            $is_saved = in_array($section['id'], $saved_sections);
-                            $param_count = count($section['parameters']);
-                            $animation_delay = ($index * 0.1) + 0.2;
+                        <!-- Categories/Sections -->
+                        <?php foreach($categories_with_params as $index => $category_data): 
+                            $category = $category_data['category'];
+                            $parameters = $category_data['parameters'];
+                            $is_saved = isSectionSaved($month_id, $category['id'], $role_id, $is_admin);
+                            $param_count = count($parameters);
                         ?>
-                        <div class="section-card <?php echo $is_saved ? 'saved' : 'unsaved'; ?>" style="animation-delay: <?php echo $animation_delay; ?>s;">
+                        <div class="section-card <?php echo $is_saved ? 'saved' : 'unsaved'; ?>" style="animation-delay: <?php echo ($index * 0.1) + 0.2; ?>s;">
                             <div class="section-header">
                                 <h3 class="section-title">
-                                    📁 <?php echo htmlspecialchars($section['name']); ?>
+                                    <i class="fas fa-folder"></i> <?php echo htmlspecialchars($category['name']); ?>
+                                    <?php if (!empty($category['description'])): ?>
+                                        <span class="text-muted ml-2">- <?php echo htmlspecialchars($category['description']); ?></span>
+                                    <?php endif; ?>
                                 </h3>
                                 <div class="section-status">
                                     <span class="parameter-count">
-                                        📊 <?php echo $param_count; ?> parameters
+                                        <i class="fas fa-chart-bar"></i> <?php echo $param_count; ?> parameters
                                     </span>
                                     <span class="status-badge status-<?php echo $is_saved ? 'saved' : 'pending'; ?>">
-                                        <?php echo $is_saved ? '✓ Saved' : '⏳ Pending'; ?>
+                                        <?php echo $is_saved ? '<i class="fas fa-check"></i> Saved' : '<i class="fas fa-clock"></i> Pending'; ?>
                                     </span>
                                 </div>
                             </div>
                             
-                            <?php if (!empty($section['description'])): ?>
-                                <div style="padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
-                                    <p style="color: var(--text-secondary); margin: 0;">
-                                        📝 <?php echo htmlspecialchars($section['description']); ?>
-                                    </p>
-                                </div>
-                            <?php endif; ?>
-                            
                             <div class="parameter-grid">
-                                <?php foreach($section['parameters'] as $param): 
-                                    // Check if this parameter should be multi-line (IDs that need textarea)
-                                    $is_multiline = ($param['id'] == 221 || $param['id'] == 222 || $param['id'] == 172 || $param['id'] == 174 || $param['id'] == 305);
+                                <?php foreach($parameters as $param): 
+                                    // Check if this parameter should be multi-line
+                                    $is_multiline = in_array($param['id'], [221, 222, 172, 174, 305]);
                                 ?>
                                 <div class="parameter-item <?php echo $param['required'] ? 'required' : ''; ?> <?php echo $is_multiline ? 'multiline' : ''; ?>">
                                     <div class="parameter-label">
@@ -298,24 +453,23 @@ require 'nav_bar.php';
                                             <div class="parameter-text">
                                                 <?php echo htmlspecialchars($param['label']); ?>
                                                 <?php if ($param['required']): ?>
-                                                    <span style="color: var(--danger-red); margin-left: 2px;">*</span>
+                                                    <span class="text-danger">*</span>
                                                 <?php endif; ?>
                                             </div>
                                             <?php if(!empty($param['unit'])): ?>
                                                 <div class="parameter-unit">
-                                                    📏 Unit: <?php echo htmlspecialchars($param['unit']); ?>
+                                                    <i class="fas fa-ruler"></i> Unit: <?php echo htmlspecialchars($param['unit']); ?>
                                                 </div>
                                             <?php endif; ?>
                                             <?php if($is_multiline): ?>
-                                                <span class="multiline-hint">
-                                                    ⌨️ Press Enter for new line
-                                                </span>
+                                                <div class="multiline-hint">
+                                                    <i class="fas fa-keyboard"></i> Press Enter for new line
+                                                </div>
                                             <?php endif; ?>
                                         </div>
                                     </div>
                                     
                                     <?php if($is_multiline): ?>
-                                        <!-- Use textarea for multi-line parameters -->
                                         <textarea 
                                             name="data[<?php echo htmlspecialchars($param['code']); ?>]" 
                                             class="parameter-input parameter-textarea"
@@ -324,7 +478,6 @@ require 'nav_bar.php';
                                             <?php echo $param['required'] ? 'required' : ''; ?>
                                             placeholder="Enter value (press Enter for new line)..."><?php echo isset($existing_data[$param['code']]) ? htmlspecialchars($existing_data[$param['code']]) : ''; ?></textarea>
                                     <?php else: ?>
-                                        <!-- Use text input for single-line parameters -->
                                         <input type="text" 
                                                name="data[<?php echo htmlspecialchars($param['code']); ?>]" 
                                                value="<?php echo isset($existing_data[$param['code']]) ? htmlspecialchars($existing_data[$param['code']]) : ''; ?>"
@@ -339,13 +492,13 @@ require 'nav_bar.php';
                             
                             <?php if (!$is_submitted && $param_count > 0): ?>
                             <div class="section-actions">
-                                <form method="POST" class="save-section-form">
+                                <form method="POST" class="save-section-form" id="form-<?php echo $category['id']; ?>">
                                     <input type="hidden" name="month_id" value="<?php echo $month_id; ?>">
-                                    <input type="hidden" name="section_id" value="<?php echo $section['id']; ?>">
+                                    <input type="hidden" name="category_id" value="<?php echo $category['id']; ?>">
                                     <input type="hidden" name="action" value="save_section">
                                     
-                                    <button type="submit" class="btn-save-section" id="save-section-<?php echo $section['id']; ?>">
-                                        💾 Save This Section
+                                    <button type="submit" class="btn-save-section" id="save-section-<?php echo $category['id']; ?>">
+                                        <i class="fas fa-save"></i> Save This Section
                                     </button>
                                 </form>
                             </div>
@@ -355,35 +508,35 @@ require 'nav_bar.php';
                     <?php endif; ?>
 
                     <!-- Final Submission for Admin -->
-                    <?php if (!$is_submitted && isAdmin()): ?>
+                    <?php if (!$is_submitted && $is_admin): ?>
                     <div class="final-submission-card">
                         <div class="final-submission-header">
-                            <h3>✅ Final Report Submission</h3>
+                            <h3><i class="fas fa-check-circle"></i> Final Report Submission</h3>
                             <p>Complete all sections to submit the final report and lock data for this month</p>
                         </div>
                         
                         <div class="completion-progress">
                             <div class="progress-bar-container">
-                                <div class="progress-bar-fill" style="width: <?php echo $total_sections > 0 ? ($saved_count / $total_sections * 100) : 0; ?>%">
-                                    <?php echo $saved_count; ?> of <?php echo $total_sections; ?> Sections Complete
+                                <div class="progress-bar-fill" style="width: <?php echo $total_categories > 0 ? ($saved_categories / $total_categories * 100) : 0; ?>%">
+                                    <?php echo $saved_categories; ?> of <?php echo $total_categories; ?> Sections Complete
                                 </div>
                             </div>
                             <div class="progress-stats">
                                 <span>Progress</span>
-                                <span><?php echo $total_sections > 0 ? round(($saved_count / $total_sections * 100), 1) : 0; ?>% Complete</span>
+                                <span><?php echo $total_categories > 0 ? round(($saved_categories / $total_categories * 100), 1) : 0; ?>% Complete</span>
                             </div>
                         </div>
                         
-                        <?php if ($saved_count == $total_sections): ?>
+                        <?php if ($saved_categories == $total_categories): ?>
                             <form method="POST" id="final-submission-form">
                                 <input type="hidden" name="action" value="submit_final">
                                 <button type="submit" class="btn-submit-final" onclick="return confirmFinalSubmission();">
-                                    🚀 Submit Final Report
+                                    <i class="fas fa-rocket"></i> Submit Final Report
                                 </button>
                             </form>
                         <?php else: ?>
                             <button class="btn-submit-final" disabled>
-                                🔒 Complete All Sections First
+                                <i class="fas fa-lock"></i> Complete All Sections First
                             </button>
                         <?php endif; ?>
                     </div>
@@ -392,10 +545,10 @@ require 'nav_bar.php';
                     <!-- Action Buttons -->
                     <div class="action-buttons">
                         <a href="months.php" class="btn-back">
-                            ← Back to Months
+                            <i class="fas fa-arrow-left"></i> Back to Months
                         </a>
                         <a href="report.php?month_id=<?php echo $month_id; ?>" class="btn-view-report">
-                            📊 View Report →
+                            <i class="fas fa-chart-bar"></i> View Report
                         </a>
                     </div>
                 </div>
@@ -404,65 +557,51 @@ require 'nav_bar.php';
     </div>
 
     <script>
-        // Auto-focus on first input
+        // Handle section form submissions
         document.addEventListener('DOMContentLoaded', function() {
-            const firstInput = document.querySelector('input[type="text"]:not([readonly]), textarea:not([readonly])');
-            if (firstInput) {
-                setTimeout(() => {
-                    firstInput.focus();
-                }, 300);
-            }
-            
-            // Handle section form submissions
             const sectionForms = document.querySelectorAll('.save-section-form');
             sectionForms.forEach(form => {
                 form.addEventListener('submit', function(e) {
                     e.preventDefault();
                     
-                    // Get all parameter inputs within this section
-                    const sectionCard = this.closest('.section-card');
-                    const parameterInputs = sectionCard.querySelectorAll('.parameter-input, .parameter-textarea');
-                    
                     // Validate required fields
+                    const formData = new FormData(this);
+                    const dataObj = Object.fromEntries(formData.entries());
+                    const categoryId = dataObj.category_id;
+                    
+                    // Get all inputs in this section
+                    const section = document.getElementById('form-' + categoryId).closest('.section-card');
+                    const inputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
+                    
                     let isValid = true;
-                    const requiredErrors = [];
-                    parameterInputs.forEach(input => {
+                    const requiredFields = [];
+                    
+                    inputs.forEach(input => {
                         if (input.hasAttribute('required') && !input.value.trim()) {
                             isValid = false;
-                            input.style.borderColor = '#ff6b6b';
-                            input.style.boxShadow = '0 0 0 3px rgba(255, 107, 107, 0.2)';
-                            requiredErrors.push(input.previousElementSibling.querySelector('.parameter-text').textContent);
+                            input.style.borderColor = '#ff4757';
+                            const fieldLabel = input.closest('.parameter-item').querySelector('.parameter-text').textContent;
+                            requiredFields.push(fieldLabel.trim());
                         }
                     });
                     
                     if (!isValid) {
-                        alert('❌ Please fill in all required fields marked with *:\n\n' + requiredErrors.join('\n'));
+                        alert('Please fill in all required fields marked with *:\n\n' + requiredFields.join('\n'));
                         return;
                     }
                     
-                    // Create a FormData object and copy all inputs
-                    const formData = new FormData();
-                    formData.append('month_id', this.querySelector('input[name="month_id"]').value);
-                    formData.append('section_id', this.querySelector('input[name="section_id"]').value);
-                    formData.append('action', this.querySelector('input[name="action"]').value);
-                    
-                    parameterInputs.forEach(input => {
-                        formData.append(input.name, input.value);
-                    });
-                    
-                    // Add loading state
-                    const submitBtn = this.querySelector('button[type="submit"]');
+                    // Submit form
+                    const submitBtn = this.querySelector('.btn-save-section');
                     const originalText = submitBtn.innerHTML;
-                    submitBtn.innerHTML = '⏳ Saving...';
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
                     submitBtn.disabled = true;
                     
-                    // Submit form data
                     fetch('', {
                         method: 'POST',
-                        body: formData
+                        body: new FormData(this)
                     })
                     .then(response => response.text())
-                    .then(html => {
+                    .then(() => {
                         // Reload the page to show updated status
                         window.location.reload();
                     })
@@ -470,7 +609,7 @@ require 'nav_bar.php';
                         console.error('Error:', error);
                         submitBtn.innerHTML = originalText;
                         submitBtn.disabled = false;
-                        alert('❌ Error saving section. Please try again.');
+                        alert('Error saving section. Please try again.');
                     });
                 });
             });
@@ -480,37 +619,15 @@ require 'nav_bar.php';
                 return confirm('⚠️ Are you sure you want to submit the final report?\n\nOnce submitted, the data for this month will be locked and cannot be edited.\nThis action requires administrative privileges.');
             };
             
-            // Form validation feedback
-            const parameterInputs = document.querySelectorAll('.parameter-input, .parameter-textarea');
-            parameterInputs.forEach(input => {
-                input.addEventListener('blur', function() {
-                    if (this.hasAttribute('required') && !this.value.trim()) {
-                        this.style.borderColor = '#ff6b6b';
-                        this.style.boxShadow = '0 0 0 3px rgba(255, 107, 107, 0.2)';
-                    } else {
-                        this.style.borderColor = this.value.trim() ? '#4ade80' : 'rgba(255, 255, 255, 0.2)';
-                        this.style.boxShadow = this.value.trim() ? '0 0 0 3px rgba(74, 222, 128, 0.2)' : 'none';
-                    }
-                });
-                
-                input.addEventListener('input', function() {
-                    if (this.hasAttribute('required') && this.value.trim()) {
-                        this.style.borderColor = '#4ade80';
-                        this.style.boxShadow = '0 0 0 3px rgba(74, 222, 128, 0.2)';
-                    }
-                });
-            });
-            
-            // Textarea auto-expand functionality
+            // Auto-expand textareas based on content
             const textareas = document.querySelectorAll('.parameter-textarea');
             textareas.forEach(textarea => {
-                // Auto-expand textarea based on content
                 textarea.addEventListener('input', function() {
                     this.style.height = 'auto';
                     this.style.height = (this.scrollHeight) + 'px';
                 });
                 
-                // Trigger auto-expand on load for existing content
+                // Trigger on page load for existing content
                 if (textarea.value.trim()) {
                     setTimeout(() => {
                         textarea.style.height = 'auto';
@@ -519,65 +636,21 @@ require 'nav_bar.php';
                 }
             });
             
-            // Add enter key support for form submission (only for text inputs, not textareas)
-            const textInputs = document.querySelectorAll('input[type="text"].parameter-input');
-            textInputs.forEach(input => {
-                input.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const form = this.closest('.save-section-form');
-                        if (form) {
-                            form.dispatchEvent(new Event('submit'));
-                        }
+            // Remove error styling when user starts typing
+            const inputs = document.querySelectorAll('input, textarea');
+            inputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    if (this.style.borderColor === 'rgb(255, 71, 87)') {
+                        this.style.borderColor = '';
                     }
                 });
             });
             
-            // Highlight unsaved sections
-            const unsavedSections = document.querySelectorAll('.section-card.unsaved');
-            unsavedSections.forEach(section => {
-                const saveBtn = section.querySelector('.btn-save-section');
-                const inputs = section.querySelectorAll('.parameter-input, .parameter-textarea');
-                
-                // Check if any input has been modified
-                inputs.forEach(input => {
-                    const originalValue = input.value;
-                    input.addEventListener('input', function() {
-                        if (this.value !== originalValue && saveBtn) {
-                            saveBtn.style.background = 'linear-gradient(135deg, #ff6b6b, #ff4757)';
-                            saveBtn.innerHTML = '💾 Save Changes';
-                        }
-                    });
-                    
-                    // Check if value was pre-filled from database
-                    if (originalValue && originalValue.trim()) {
-                        input.style.borderColor = '#00ffff';
-                        input.style.boxShadow = '0 0 0 3px rgba(0, 255, 255, 0.2)';
-                    }
-                });
-            });
-            
-            // Add keyboard shortcuts
-            document.addEventListener('keydown', function(e) {
-                // Ctrl/Cmd + S to save current section
-                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                    e.preventDefault();
-                    const focusedElement = document.activeElement;
-                    if (focusedElement && (focusedElement.classList.contains('parameter-input') || focusedElement.classList.contains('parameter-textarea'))) {
-                        const form = focusedElement.closest('.save-section-form');
-                        if (form) {
-                            form.dispatchEvent(new Event('submit'));
-                        }
-                    }
-                }
-            });
-            
-            // Show character count for textareas
+            // Character count for textareas
             textareas.forEach(textarea => {
                 const container = textarea.parentElement;
                 const charCount = document.createElement('div');
-                charCount.style.cssText = 'color: rgba(255, 255, 255, 0.5); font-size: 12px; text-align: right; margin-top: 5px;';
-                charCount.className = 'char-count';
+                charCount.className = 'char-count text-muted small mt-1';
                 container.appendChild(charCount);
                 
                 textarea.addEventListener('input', function() {
@@ -585,11 +658,11 @@ require 'nav_bar.php';
                     charCount.textContent = `${count} characters`;
                     
                     if (count > 1000) {
-                        charCount.style.color = '#ff6b6b';
+                        charCount.style.color = '#ff4757';
                     } else if (count > 500) {
                         charCount.style.color = '#ffc107';
                     } else {
-                        charCount.style.color = 'rgba(255, 255, 255, 0.5)';
+                        charCount.style.color = 'var(--text-tertiary)';
                     }
                 });
                 
@@ -597,19 +670,11 @@ require 'nav_bar.php';
                 textarea.dispatchEvent(new Event('input'));
             });
             
-            // Add animation for progress bar
-            const progressFill = document.querySelector('.progress-bar-fill');
-            if (progressFill) {
-                const width = progressFill.style.width;
-                progressFill.style.width = '0%';
-                setTimeout(() => {
-                    progressFill.style.width = width;
-                }, 500);
-            }
-            
-            // Show save notification before leaving page
+            // Show unsaved changes warning
             window.addEventListener('beforeunload', function(e) {
-                const hasUnsavedChanges = document.querySelector('.btn-save-section[style*="background: linear-gradient(135deg, #ff6b6b, #ff4757)"]');
+                const hasUnsavedChanges = document.querySelectorAll('input:not([readonly]), textarea:not([readonly])')
+                    .some(input => input.value !== input.defaultValue);
+                
                 if (hasUnsavedChanges) {
                     e.preventDefault();
                     e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';

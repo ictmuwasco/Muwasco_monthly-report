@@ -1,5 +1,5 @@
 <?php
-// login.php - Updated to allow login with username OR email
+// login.php - Updated for role-based system
 session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -68,8 +68,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Sanitize email
                     $sanitized_input = filter_var($login_input, FILTER_SANITIZE_EMAIL);
                     
-                    // Build query to check by email
-                    $query = "SELECT id, username, password, full_name, role, is_active, email FROM users WHERE email = ? AND is_active = 1";
+                    // Build query to check by email with role information
+                    $query = "SELECT 
+                                u.id, 
+                                u.username, 
+                                u.password, 
+                                u.first_name, 
+                                u.last_name, 
+                                u.surname,
+                                u.email, 
+                                u.is_active,
+                                u.role_id,
+                                r.name as role_name,
+                                r.description as role_description
+                              FROM users u
+                              JOIN roles r ON u.role_id = r.id
+                              WHERE u.email = ? AND u.is_active = 1";
                     
                     $stmt = $conn->prepare($query);
                     
@@ -99,8 +113,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Sanitize username
                     $sanitized_input = filter_var($login_input, FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                     
-                    // Build query to check by username
-                    $query = "SELECT id, username, password, full_name, role, is_active, email FROM users WHERE username = ? AND is_active = 1";
+                    // Build query to check by username with role information
+                    $query = "SELECT 
+                                u.id, 
+                                u.username, 
+                                u.password, 
+                                u.first_name, 
+                                u.last_name, 
+                                u.surname,
+                                u.email, 
+                                u.is_active,
+                                u.role_id,
+                                r.name as role_name,
+                                r.description as role_description
+                              FROM users u
+                              JOIN roles r ON u.role_id = r.id
+                              WHERE u.username = ? AND u.is_active = 1";
                     
                     $stmt = $conn->prepare($query);
                     
@@ -131,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /**
- * Process login result - common function for both username and email login
+ * Process login result - updated for role-based system
  */
 function processLoginResult($result, $password, $login_input, $conn, &$error) {
     global $_SESSION;
@@ -159,19 +187,39 @@ function processLoginResult($result, $password, $login_input, $conn, &$error) {
                 }
             }
             
+            // Update last activity if column exists
+            $check_activity = $conn->query("SHOW COLUMNS FROM users LIKE 'last_activity'");
+            $has_last_activity = $check_activity && $check_activity->num_rows > 0;
+            
+            if ($has_last_activity) {
+                $update_stmt = $conn->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?");
+                if ($update_stmt) {
+                    $update_stmt->bind_param("i", $user['id']);
+                    $update_stmt->execute();
+                    $update_stmt->close();
+                }
+            }
+            
             // Regenerate session ID and set session variables
             session_regenerate_id(true);
             
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
-            $_SESSION['full_name'] = $user['full_name'];
-            $_SESSION['role'] = $user['role'];
+            $_SESSION['first_name'] = $user['first_name'];
+            $_SESSION['last_name'] = $user['last_name'];
+            $_SESSION['surname'] = $user['surname'];
             $_SESSION['email'] = $user['email'] ?? '';
+            $_SESSION['role_id'] = $user['role_id'];
+            $_SESSION['role_name'] = $user['role_name'];
+            $_SESSION['role_description'] = $user['role_description'];
             $_SESSION['last_activity'] = time();
             $_SESSION['login_time'] = time();
             
             // Generate new CSRF token for the session
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            
+            // Store user permissions in session (optional, can be fetched as needed)
+            storeUserPermissions($conn, $user['role_id']);
             
             // Redirect
             $redirect_url = isset($_SESSION['redirect_url']) ? 
@@ -191,6 +239,41 @@ function processLoginResult($result, $password, $login_input, $conn, &$error) {
         $_SESSION['login_attempts']++;
         $_SESSION['last_attempt_time'] = time();
         $error = "Invalid credentials. Please check your username/email and password.";
+    }
+}
+
+/**
+ * Store user permissions in session (optional optimization)
+ */
+function storeUserPermissions($conn, $role_id) {
+    // Store parameter IDs the user has access to
+    $stmt = $conn->prepare("SELECT parameter_id FROM role_parameter_assignments WHERE role_id = ?");
+    if ($stmt) {
+        $stmt->bind_param("i", $role_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $parameter_ids = [];
+        while ($row = $result->fetch_assoc()) {
+            $parameter_ids[] = $row['parameter_id'];
+        }
+        $_SESSION['user_parameter_ids'] = $parameter_ids;
+        $stmt->close();
+    }
+    
+    // Store category IDs the user has access to
+    $stmt = $conn->prepare("SELECT category_id FROM role_category_assignments WHERE role_id = ?");
+    if ($stmt) {
+        $stmt->bind_param("i", $role_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $category_ids = [];
+        while ($row = $result->fetch_assoc()) {
+            $category_ids[] = $row['category_id'];
+        }
+        $_SESSION['user_category_ids'] = $category_ids;
+        $stmt->close();
     }
 }
 
@@ -223,10 +306,9 @@ function checkDatabaseConnection() {
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="style.css"> <!-- Changed from style.css to global.css -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- FIXED: Added the .login-box wrapper -->
     <div class="login-container">
         <div class="login-box">
             <!-- Logo Section -->
@@ -298,6 +380,11 @@ function checkDatabaseConnection() {
                         Sign In
                     </button>
                 </form>
+                
+                <!-- Role-based system notice -->
+                <div class="system-notice">
+                    <p><small>Access is granted based on your assigned role. Contact administrator for role changes.</small></p>
+                </div>
             </div>
 
             <!-- Footer -->
@@ -306,7 +393,7 @@ function checkDatabaseConnection() {
                     <span class="footer-icon">🔒</span> Your connection is secure and encrypted
                 </p>
                 <p class="footer-text">
-                    <span class="footer-icon">💡</span> Login with username or email address
+                    <span class="footer-icon">👥</span> Role-based access control system
                 </p>
             </div>
         </div> <!-- End of .login-box -->
@@ -356,6 +443,25 @@ function checkDatabaseConnection() {
         if (loginInput) {
             setTimeout(() => loginInput.focus(), 100);
         }
+        
+        // Add some CSS for the system notice
+        const style = document.createElement('style');
+        style.textContent = `
+            .system-notice {
+                margin-top: 1rem;
+                padding: 0.5rem;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+                text-align: center;
+                font-size: 0.85rem;
+                color: #6c757d;
+            }
+            
+            .system-notice small {
+                display: block;
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 </body>
 </html>
