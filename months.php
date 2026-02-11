@@ -19,12 +19,6 @@ if (!isset($_SESSION['user_id'])) {
 
 
 
-// Check if user is admin - only admins should access month management
-if (!isAdmin()) {
-    header("Location: index.php");
-    exit();
-}
-
 // Initialize variables
 $success = '';
 $error = '';
