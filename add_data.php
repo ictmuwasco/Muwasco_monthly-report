@@ -54,10 +54,32 @@ if (!$user_info) {
     exit();
 }
 
+// Ensure role_description is set
+$user_info['role_description'] = $user_info['role_description'] ?? '';
+
 $role_id = $user_info['role_id'];
 $is_admin = ($user_info['role_name'] === 'admin');
 
-
+// Function to check if user has access to a parameter
+function hasParameterAccess($parameter_id, $role_id, $is_admin) {
+    global $conn;
+    
+    if ($is_admin) {
+        return true;
+    }
+    
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) as has_access 
+        FROM role_parameter_assignments 
+        WHERE role_id = ? AND parameter_id = ?
+    ");
+    $stmt->bind_param("ii", $role_id, $parameter_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    return $result['has_access'] > 0;
+}
 
 // Function to get user's categories with parameters
 function getUserCategoriesWithParameters($role_id, $is_admin) {
@@ -295,7 +317,119 @@ require 'nav_bar.php';
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-  
+    
+    <style>
+        /* Toast Notifications */
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            min-width: 300px;
+            max-width: 450px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            padding: 16px 20px;
+            z-index: 9999;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+            border-left: 5px solid;
+        }
+
+        .toast-notification.show {
+            transform: translateX(0);
+        }
+
+        .toast-success {
+            border-left-color: #00b894;
+        }
+
+        .toast-error {
+            border-left-color: #ff4757;
+        }
+
+        .toast-warning {
+            border-left-color: #ffc107;
+        }
+
+        .toast-info {
+            border-left-color: #0984e3;
+        }
+
+        .toast-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toast-content i {
+            font-size: 24px;
+        }
+
+        .toast-success i {
+            color: #00b894;
+        }
+
+        .toast-error i {
+            color: #ff4757;
+        }
+
+        .toast-warning i {
+            color: #ffc107;
+        }
+
+        .toast-info i {
+            color: #0984e3;
+        }
+
+        .toast-content span {
+            color: #2d3436;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.5;
+            flex: 1;
+        }
+
+        /* Input error state */
+        .parameter-input.error {
+            border-color: #ff4757 !important;
+            box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.1) !important;
+        }
+
+        /* Updated section status styles */
+        .section-card.saved .status-badge {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+        }
+
+        .section-card .status-badge.status-saved {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+        }
+
+        .section-card .status-badge.status-pending {
+            background: linear-gradient(135deg, #ffeaa7, #fab1a0);
+            color: #2d3436;
+        }
+
+        /* Character count */
+        .char-count {
+            font-size: 12px;
+            margin-top: 4px;
+            text-align: right;
+        }
+
+        /* Auto-fill indicator */
+        .auto-fill-badge {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            display: inline-block;
+            margin-left: 8px;
+        }
+    </style>
 </head>
 <body class="data-entry-page">
     <!-- Water Background -->
@@ -365,7 +499,7 @@ require 'nav_bar.php';
                                 </div>
                             </div>
                         </div>
-                        <?php if ($user_info['role_description']): ?>
+                        <?php if (!empty($user_info['role_description'])): ?>
                             <div class="permission-note mt-3">
                                 <i class="fas fa-info-circle"></i> <strong>Role Description:</strong> <?php echo htmlspecialchars($user_info['role_description']); ?>
                             </div>
@@ -557,37 +691,111 @@ require 'nav_bar.php';
     </div>
 
     <script>
+        // Toast notification system
+        function showToast(message, type = 'success') {
+            // Remove existing toast if any
+            const existingToast = document.querySelector('.toast-notification');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.className = `toast-notification toast-${type}`;
+            
+            let icon = '';
+            if (type === 'success') icon = 'fa-check-circle';
+            else if (type === 'error') icon = 'fa-exclamation-circle';
+            else if (type === 'warning') icon = 'fa-exclamation-triangle';
+            else if (type === 'info') icon = 'fa-info-circle';
+            
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <i class="fas ${icon}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // Show toast
+            setTimeout(() => toast.classList.add('show'), 10);
+            
+            // Hide toast after 5 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+
+        // Function to validate section inputs
+        function validateSectionInputs(section) {
+            const inputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
+            const emptyRequiredFields = [];
+            
+            inputs.forEach(input => {
+                const parameterItem = input.closest('.parameter-item');
+                const isRequired = parameterItem.classList.contains('required');
+                const value = input.value.trim();
+                
+                if (isRequired && value === '') {
+                    input.style.borderColor = '#ff4757';
+                    input.classList.add('error');
+                    
+                    const parameterCode = parameterItem.querySelector('.parameter-code').textContent;
+                    const parameterLabel = parameterItem.querySelector('.parameter-text').textContent.trim();
+                    emptyRequiredFields.push(`${parameterCode} - ${parameterLabel}`);
+                } else {
+                    input.style.borderColor = '';
+                    input.classList.remove('error');
+                }
+            });
+            
+            return emptyRequiredFields;
+        }
+
+        // Function to auto-fill empty fields with "-"
+        function fillEmptyFields(section) {
+            const inputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
+            let filledCount = 0;
+            
+            inputs.forEach(input => {
+                if (input.value.trim() === '') {
+                    input.value = '-';
+                    filledCount++;
+                }
+            });
+            
+            return filledCount;
+        }
+
         // Handle section form submissions
         document.addEventListener('DOMContentLoaded', function() {
             const sectionForms = document.querySelectorAll('.save-section-form');
+            
             sectionForms.forEach(form => {
                 form.addEventListener('submit', function(e) {
                     e.preventDefault();
                     
+                    // Get the section container
+                    const section = this.closest('.section-card');
+                    const categoryId = this.querySelector('input[name="category_id"]').value;
+                    
                     // Validate required fields
-                    const formData = new FormData(this);
-                    const dataObj = Object.fromEntries(formData.entries());
-                    const categoryId = dataObj.category_id;
+                    const emptyRequiredFields = validateSectionInputs(section);
                     
-                    // Get all inputs in this section
-                    const section = document.getElementById('form-' + categoryId).closest('.section-card');
-                    const inputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
-                    
-                    let isValid = true;
-                    const requiredFields = [];
-                    
-                    inputs.forEach(input => {
-                        if (input.hasAttribute('required') && !input.value.trim()) {
-                            isValid = false;
-                            input.style.borderColor = '#ff4757';
-                            const fieldLabel = input.closest('.parameter-item').querySelector('.parameter-text').textContent;
-                            requiredFields.push(fieldLabel.trim());
+                    if (emptyRequiredFields.length > 0) {
+                        const warningMessage = `⚠️ Please fill in the following required fields:\n\n${emptyRequiredFields.join('\n')}\n\nDo you want to fill empty fields with "-"?`;
+                        
+                        if (confirm(warningMessage)) {
+                            const filledCount = fillEmptyFields(section);
+                            if (filledCount > 0) {
+                                showToast(`Filled ${filledCount} empty field(s) with "-"`, 'info');
+                            }
+                        } else {
+                            showToast('Please fill all required fields before saving', 'warning');
+                            return;
                         }
-                    });
-                    
-                    if (!isValid) {
-                        alert('Please fill in all required fields marked with *:\n\n' + requiredFields.join('\n'));
-                        return;
                     }
                     
                     // Submit form
@@ -602,22 +810,55 @@ require 'nav_bar.php';
                     })
                     .then(response => response.text())
                     .then(() => {
-                        // Reload the page to show updated status
-                        window.location.reload();
+                        showToast('✅ Section saved successfully!', 'success');
+                        
+                        // Update section status
+                        const statusBadge = section.querySelector('.status-badge');
+                        if (statusBadge) {
+                            statusBadge.innerHTML = '<i class="fas fa-check"></i> Saved';
+                            statusBadge.classList.remove('status-pending');
+                            statusBadge.classList.add('status-saved');
+                        }
+                        
+                        section.classList.remove('unsaved');
+                        section.classList.add('saved');
+                        
+                        // Reload page after 1.5 seconds to update counts
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1500);
                     })
                     .catch(error => {
                         console.error('Error:', error);
                         submitBtn.innerHTML = originalText;
                         submitBtn.disabled = false;
-                        alert('Error saving section. Please try again.');
+                        showToast('❌ Error saving section. Please try again.', 'error');
                     });
                 });
             });
             
-            // Final submission confirmation
-            window.confirmFinalSubmission = function() {
-                return confirm('⚠️ Are you sure you want to submit the final report?\n\nOnce submitted, the data for this month will be locked and cannot be edited.\nThis action requires administrative privileges.');
-            };
+            // Add individual field validation on blur
+            const parameterInputs = document.querySelectorAll('.parameter-input');
+            parameterInputs.forEach(input => {
+                input.addEventListener('blur', function() {
+                    const parameterItem = this.closest('.parameter-item');
+                    const isRequired = parameterItem.classList.contains('required');
+                    
+                    if (isRequired && this.value.trim() === '') {
+                        this.style.borderColor = '#ff4757';
+                        this.classList.add('error');
+                    } else {
+                        this.style.borderColor = '';
+                        this.classList.remove('error');
+                    }
+                });
+                
+                // Clear error state on input
+                input.addEventListener('input', function() {
+                    this.style.borderColor = '';
+                    this.classList.remove('error');
+                });
+            });
             
             // Auto-expand textareas based on content
             const textareas = document.querySelectorAll('.parameter-textarea');
@@ -634,16 +875,6 @@ require 'nav_bar.php';
                         textarea.style.height = (textarea.scrollHeight) + 'px';
                     }, 100);
                 }
-            });
-            
-            // Remove error styling when user starts typing
-            const inputs = document.querySelectorAll('input, textarea');
-            inputs.forEach(input => {
-                input.addEventListener('input', function() {
-                    if (this.style.borderColor === 'rgb(255, 71, 87)') {
-                        this.style.borderColor = '';
-                    }
-                });
             });
             
             // Character count for textareas
@@ -671,16 +902,44 @@ require 'nav_bar.php';
             });
             
             // Show unsaved changes warning
-            window.addEventListener('beforeunload', function(e) {
-                const hasUnsavedChanges = document.querySelectorAll('input:not([readonly]), textarea:not([readonly])')
-                    .some(input => input.value !== input.defaultValue);
+            let hasUnsavedChanges = false;
+            
+            // Track input changes
+            const allInputs = document.querySelectorAll('input:not([readonly]), textarea:not([readonly])');
+            allInputs.forEach(input => {
+                input.addEventListener('change', function() {
+                    hasUnsavedChanges = true;
+                });
                 
+                input.addEventListener('input', function() {
+                    hasUnsavedChanges = true;
+                });
+            });
+            
+            // Reset unsaved changes flag after successful save
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+                form.addEventListener('submit', function() {
+                    hasUnsavedChanges = false;
+                });
+            });
+            
+            window.addEventListener('beforeunload', function(e) {
                 if (hasUnsavedChanges) {
                     e.preventDefault();
                     e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
                     return e.returnValue;
                 }
             });
+            
+            // Final submission confirmation
+            window.confirmFinalSubmission = function() {
+                return confirm('⚠️ IMPORTANT: Final Report Submission\n\n' +
+                    '• All sections will be locked\n' +
+                    '• No further edits will be possible\n' +
+                    '• This action requires administrative privileges\n\n' +
+                    'Are you absolutely sure you want to submit the final report?');
+            };
         });
     </script>
 </body>
