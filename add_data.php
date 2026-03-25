@@ -60,27 +60,6 @@ $user_info['role_description'] = $user_info['role_description'] ?? '';
 $role_id = $user_info['role_id'];
 $is_admin = ($user_info['role_name'] === 'admin');
 
-// Function to check if user has access to a parameter
-function hasParameterAccess($parameter_id, $role_id, $is_admin) {
-    global $conn;
-    
-    if ($is_admin) {
-        return true;
-    }
-    
-    $stmt = $conn->prepare("
-        SELECT COUNT(*) as has_access 
-        FROM role_parameter_assignments 
-        WHERE role_id = ? AND parameter_id = ?
-    ");
-    $stmt->bind_param("ii", $role_id, $parameter_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    
-    return $result['has_access'] > 0;
-}
-
 // Function to get user's categories with parameters
 function getUserCategoriesWithParameters($role_id, $is_admin) {
     global $conn;
