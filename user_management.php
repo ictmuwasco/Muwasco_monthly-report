@@ -16,119 +16,108 @@ if (!isAdmin()) {
 $message = '';
 $message_type = '';
 
-// Create new user
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_user'])) {
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
-    $confirm_password = $_POST['confirm_password'];
-    $email = trim($_POST['email']);
-    $first_name = trim($_POST['first_name']);
-    $last_name = trim($_POST['last_name']);
-    $surname = trim($_POST['surname']);
-    $role_id = intval($_POST['role_id']);
-    $is_active = isset($_POST['is_active']) ? 1 : 0;
+// ── All AJAX POST actions — detected via hidden _ajax=1 field ─────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_ajax'])) {
+    header('Content-Type: application/json');
 
-    // Validation
-    if (empty($username) || empty($password)) {
-        $message = 'Username and password are required';
-        $message_type = 'danger';
-    } elseif ($password !== $confirm_password) {
-        $message = 'Passwords do not match';
-        $message_type = 'danger';
-    } elseif (strlen($password) < 6) {
-        $message = 'Password must be at least 6 characters';
-        $message_type = 'danger';
-    } else {
-        // Check if username exists
-        $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $stmt->store_result();
-        
-        if ($stmt->num_rows > 0) {
-            $message = 'Username already exists';
-            $message_type = 'danger';
+    // ── Create user ──────────────────────────────────────────────────────────
+    if (isset($_POST['create_user'])) {
+        $username         = trim($_POST['username']);
+        $password         = $_POST['password'];
+        $confirm_password = $_POST['confirm_password'];
+        $email            = trim($_POST['email']);
+        $first_name       = trim($_POST['first_name']);
+        $last_name        = trim($_POST['last_name']);
+        $surname          = trim($_POST['surname']);
+        $role_id          = intval($_POST['role_id']);
+        $is_active        = isset($_POST['is_active']) ? 1 : 0;
+
+        if (empty($username) || empty($password)) {
+            echo json_encode(['success' => false, 'message' => 'Username and password are required']);
+        } elseif ($password !== $confirm_password) {
+            echo json_encode(['success' => false, 'message' => 'Passwords do not match']);
+        } elseif (strlen($password) < 6) {
+            echo json_encode(['success' => false, 'message' => 'Password must be at least 6 characters']);
         } else {
-            // Hash password
-            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            
-            // Insert user
-            $stmt = $conn->prepare("
-                INSERT INTO users (username, password, email, first_name, last_name, surname, role_id, is_active, created_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->bind_param("ssssssii", $username, $hashed_password, $email, $first_name, $last_name, $surname, $role_id, $is_active);
-            
-            if ($stmt->execute()) {
-                $message = 'User created successfully';
-                $message_type = 'success';
+            $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->bind_param("s", $username);
+            $stmt->execute();
+            $stmt->store_result();
+            if ($stmt->num_rows > 0) {
+                echo json_encode(['success' => false, 'message' => 'Username already exists']);
             } else {
-                $message = 'Error creating user: ' . $conn->error;
-                $message_type = 'danger';
+                $stmt->close();
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare("
+                    INSERT INTO users (username, password, email, first_name, last_name, surname, role_id, is_active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                ");
+                $stmt->bind_param("ssssssii", $username, $hashed_password, $email, $first_name, $last_name, $surname, $role_id, $is_active);
+                if ($stmt->execute()) {
+                    echo json_encode(['success' => true, 'message' => 'User created successfully']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Error creating user: ' . $conn->error]);
+                }
             }
+            $stmt->close();
         }
-        $stmt->close();
+        exit();
     }
-}
 
-// Update user
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_user'])) {
-    $user_id = intval($_POST['user_id']);
-    $email = trim($_POST['email']);
-    $first_name = trim($_POST['first_name']);
-    $last_name = trim($_POST['last_name']);
-    $surname = trim($_POST['surname']);
-    $role_id = intval($_POST['role_id']);
-    $is_active = isset($_POST['is_active']) ? 1 : 0;
+    // ── Update user ──────────────────────────────────────────────────────────
+    if (isset($_POST['update_user'])) {
+        $user_id    = intval($_POST['user_id']);
+        $email      = trim($_POST['email']);
+        $first_name = trim($_POST['first_name']);
+        $last_name  = trim($_POST['last_name']);
+        $surname    = trim($_POST['surname']);
+        $role_id    = intval($_POST['role_id']);
+        $is_active  = isset($_POST['is_active']) ? 1 : 0;
 
-    // Update user
-    $stmt = $conn->prepare("
-        UPDATE users 
-        SET email = ?, first_name = ?, last_name = ?, surname = ?, role_id = ?, is_active = ?
-        WHERE id = ?
-    ");
-    $stmt->bind_param("ssssiii", $email, $first_name, $last_name, $surname, $role_id, $is_active, $user_id);
-    
-    if ($stmt->execute()) {
-        $message = 'User updated successfully';
-        $message_type = 'success';
-    } else {
-        $message = 'Error updating user: ' . $conn->error;
-        $message_type = 'danger';
-    }
-    $stmt->close();
-}
-
-// Reset password
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
-    $user_id = intval($_POST['user_id']);
-    $new_password = $_POST['new_password'];
-    $confirm_password = $_POST['confirm_password'];
-    
-    if (empty($new_password)) {
-        $message = 'New password is required';
-        $message_type = 'danger';
-    } elseif ($new_password !== $confirm_password) {
-        $message = 'Passwords do not match';
-        $message_type = 'danger';
-    } elseif (strlen($new_password) < 6) {
-        $message = 'Password must be at least 6 characters';
-        $message_type = 'danger';
-    } else {
-        $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-        
-        $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
-        $stmt->bind_param("si", $hashed_password, $user_id);
-        
+        $stmt = $conn->prepare("
+            UPDATE users
+            SET email = ?, first_name = ?, last_name = ?, surname = ?, role_id = ?, is_active = ?
+            WHERE id = ?
+        ");
+        $stmt->bind_param("ssssiii", $email, $first_name, $last_name, $surname, $role_id, $is_active, $user_id);
         if ($stmt->execute()) {
-            $message = 'Password reset successfully';
-            $message_type = 'success';
+            echo json_encode(['success' => true,  'message' => 'User updated successfully']);
         } else {
-            $message = 'Error resetting password: ' . $conn->error;
-            $message_type = 'danger';
+            echo json_encode(['success' => false, 'message' => 'Error updating user: ' . $conn->error]);
         }
         $stmt->close();
+        exit();
     }
+
+    // ── Reset password ───────────────────────────────────────────────────────
+    if (isset($_POST['reset_password'])) {
+        $user_id          = intval($_POST['user_id']);
+        $new_password     = $_POST['new_password'];
+        $confirm_password = $_POST['confirm_password'];
+
+        if (empty($new_password)) {
+            echo json_encode(['success' => false, 'message' => 'New password is required']);
+        } elseif ($new_password !== $confirm_password) {
+            echo json_encode(['success' => false, 'message' => 'Passwords do not match']);
+        } elseif (strlen($new_password) < 6) {
+            echo json_encode(['success' => false, 'message' => 'Password must be at least 6 characters']);
+        } else {
+            $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+            $stmt->bind_param("si", $hashed_password, $user_id);
+            if ($stmt->execute()) {
+                echo json_encode(['success' => true,  'message' => 'Password reset successfully']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Error resetting password: ' . $conn->error]);
+            }
+            $stmt->close();
+        }
+        exit();
+    }
+
+    // Unknown AJAX action
+    echo json_encode(['success' => false, 'message' => 'Unknown action']);
+    exit();
 }
 
 // Toggle user active status
@@ -178,23 +167,6 @@ if (isset($_GET['delete'])) {
         }
         $stmt->close();
     }
-}
-
-// Get user details for edit modal
-$edit_user = null;
-if (isset($_GET['edit'])) {
-    $user_id = intval($_GET['edit']);
-    $stmt = $conn->prepare("
-        SELECT u.*, r.name as role_name 
-        FROM users u 
-        LEFT JOIN roles r ON u.role_id = r.id 
-        WHERE u.id = ?
-    ");
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $edit_user = $result->fetch_assoc();
-    $stmt->close();
 }
 
 // Get all users with role information
@@ -368,8 +340,22 @@ while ($role = $roles_result->fetch_assoc()) {
                                                     <td><?= date('M d, Y', strtotime($user['created_at'])) ?></td>
                                                     <td>
                                                         <div class="user-action-buttons">
+                                                            <!-- 
+                                                                FIX: All user data is passed directly as JS arguments.
+                                                                This avoids a page reload (?edit=ID) to fetch user data.
+                                                            -->
                                                             <button class="btn-user-action btn-info" 
-                                                                    onclick="openEditModal(<?= $user['id'] ?>)">
+                                                                    onclick="openEditModal(
+                                                                        <?= $user['id'] ?>,
+                                                                        '<?= htmlspecialchars(addslashes($user['email'] ?? ''), ENT_QUOTES) ?>',
+                                                                        '<?= htmlspecialchars(addslashes($user['first_name'] ?? ''), ENT_QUOTES) ?>',
+                                                                        '<?= htmlspecialchars(addslashes($user['last_name'] ?? ''), ENT_QUOTES) ?>',
+                                                                        '<?= htmlspecialchars(addslashes($user['surname'] ?? ''), ENT_QUOTES) ?>',
+                                                                        <?= intval($user['role_id']) ?>,
+                                                                        <?= $user['is_active'] ? 'true' : 'false' ?>,
+                                                                        '<?= htmlspecialchars(addslashes($user['username']), ENT_QUOTES) ?>',
+                                                                        '<?= date('M d, Y', strtotime($user['created_at'])) ?>'
+                                                                    )">
                                                                 <i class="bi bi-pencil"></i> Edit
                                                             </button>
                                                             <button class="btn-user-action btn-warning" 
@@ -423,6 +409,8 @@ while ($role = $roles_result->fetch_assoc()) {
                 <button class="modal-close" onclick="closeCreateModal()">&times;</button>
             </div>
             <form method="POST" action="" class="user-form" id="createUserForm">
+                <input type="hidden" name="_ajax" value="1">
+                <input type="hidden" name="create_user" value="1">
                 <div class="modal-body">
                     <div class="form-group">
                         <label for="username" class="form-label">Username *</label>
@@ -491,7 +479,7 @@ while ($role = $roles_result->fetch_assoc()) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
-                    <button type="submit" name="create_user" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         <i class="bi bi-person-plus"></i> Create User
                     </button>
                 </div>
@@ -508,6 +496,8 @@ while ($role = $roles_result->fetch_assoc()) {
             </div>
             <form method="POST" action="" class="user-form" id="editUserForm">
                 <input type="hidden" id="edit_user_id" name="user_id">
+                <input type="hidden" name="_ajax" value="1">
+                <input type="hidden" name="update_user" value="1">
                 <div class="modal-body">
                     <!-- User Details Display -->
                     <div id="userDetailsDisplay" class="user-details-grid" style="display: none;">
@@ -573,7 +563,7 @@ while ($role = $roles_result->fetch_assoc()) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-                    <button type="submit" name="update_user" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         <i class="bi bi-save"></i> Update User
                     </button>
                 </div>
@@ -590,6 +580,8 @@ while ($role = $roles_result->fetch_assoc()) {
             </div>
             <form method="POST" action="" class="user-form" id="resetPasswordForm">
                 <input type="hidden" id="reset_user_id" name="user_id">
+                <input type="hidden" name="_ajax" value="1">
+                <input type="hidden" name="reset_password" value="1">
                 <div class="modal-body">
                     <div class="form-group">
                         <p>Reset password for user: <strong id="reset_username"></strong></p>
@@ -607,7 +599,7 @@ while ($role = $roles_result->fetch_assoc()) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Cancel</button>
-                    <button type="submit" name="reset_password" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         <i class="bi bi-key"></i> Reset Password
                     </button>
                 </div>
@@ -616,7 +608,9 @@ while ($role = $roles_result->fetch_assoc()) {
     </div>
 
     <script>
-        // Modal Functions
+        // ─────────────────────────────────────────────
+        // CREATE MODAL
+        // ─────────────────────────────────────────────
         function openCreateModal() {
             document.getElementById('createModal').classList.add('active');
             document.getElementById('modalBackdrop').style.display = 'block';
@@ -630,22 +624,39 @@ while ($role = $roles_result->fetch_assoc()) {
             document.body.style.overflow = 'auto';
         }
 
-        function openEditModal(userId) {
+        // ─────────────────────────────────────────────
+        // EDIT MODAL — FIX: data passed directly, NO page reload
+        // ─────────────────────────────────────────────
+        function openEditModal(userId, email, firstName, lastName, surname, roleId, isActive, username, created) {
+            // Populate hidden + form fields directly from passed arguments
+            document.getElementById('edit_user_id').value    = userId;
+            document.getElementById('edit_email').value      = email;
+            document.getElementById('edit_first_name').value = firstName;
+            document.getElementById('edit_last_name').value  = lastName;
+            document.getElementById('edit_surname').value    = surname;
+            document.getElementById('edit_role_id').value    = roleId;
+            document.getElementById('edit_is_active').checked = isActive;
+
+            // Populate info display section
+            document.getElementById('detail_username').textContent = username;
+            document.getElementById('detail_created').textContent  = created;
+            document.getElementById('userDetailsDisplay').style.display = 'grid';
+
+            // Show modal
             document.getElementById('editModal').classList.add('active');
             document.getElementById('modalBackdrop').style.display = 'block';
             document.body.style.overflow = 'hidden';
-            window.location.href = `?edit=${userId}`;
         }
 
         function closeEditModal() {
             document.getElementById('editModal').classList.remove('active');
             document.getElementById('modalBackdrop').style.display = 'none';
             document.body.style.overflow = 'auto';
-            if (window.location.href.includes('edit=')) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
         }
 
+        // ─────────────────────────────────────────────
+        // RESET PASSWORD MODAL
+        // ─────────────────────────────────────────────
         function openResetModal(userId, username) {
             document.getElementById('reset_user_id').value = userId;
             document.getElementById('reset_username').textContent = username;
@@ -661,16 +672,15 @@ while ($role = $roles_result->fetch_assoc()) {
             document.body.style.overflow = 'auto';
         }
 
-        // Close modals on backdrop click
-        document.getElementById('modalBackdrop')?.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeCreateModal();
-                closeEditModal();
-                closeResetModal();
-            }
+        // ─────────────────────────────────────────────
+        // CLOSE ALL MODALS on backdrop or Escape key
+        // ─────────────────────────────────────────────
+        document.getElementById('modalBackdrop')?.addEventListener('click', function() {
+            closeCreateModal();
+            closeEditModal();
+            closeResetModal();
         });
 
-        // Close modals on Escape key
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 closeCreateModal();
@@ -679,7 +689,7 @@ while ($role = $roles_result->fetch_assoc()) {
             }
         });
 
-        // Close modals on overlay click
+        // Close modals when clicking the overlay itself (not content)
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', function(e) {
                 if (e.target === this) {
@@ -690,108 +700,147 @@ while ($role = $roles_result->fetch_assoc()) {
             });
         });
 
-        // Form validation
-        document.getElementById('createUserForm')?.addEventListener('submit', function(e) {
-            const password = document.getElementById('password').value;
-            const confirmPassword = document.getElementById('confirm_password').value;
-            
-            if (password !== confirmPassword) {
-                e.preventDefault();
-                alert('Passwords do not match!');
-                return false;
-            }
-            
-            if (password.length < 6) {
-                e.preventDefault();
-                alert('Password must be at least 6 characters long!');
-                return false;
-            }
-            
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
-            submitBtn.disabled = true;
-            
-            setTimeout(() => {
-                submitBtn.innerHTML = originalText;
-                submitBtn.disabled = false;
-            }, 3000);
-        });
+        // ─────────────────────────────────────────────
+        // SHARED AJAX SUBMIT HELPER
+        // ─────────────────────────────────────────────
+        async function ajaxSubmit(formEl, modalId, onSuccess) {
+            const submitBtn    = formEl.querySelector('button[type="submit"]');
+            const originalHTML = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Please wait...';
+            submitBtn.disabled  = true;
 
-        document.getElementById('resetPasswordForm')?.addEventListener('submit', function(e) {
-            const newPassword = document.getElementById('new_password').value;
-            const confirmPassword = document.getElementById('confirm_new_password').value;
-            
-            if (newPassword !== confirmPassword) {
-                e.preventDefault();
-                alert('Passwords do not match!');
-                return false;
-            }
-            
-            if (newPassword.length < 6) {
-                e.preventDefault();
-                alert('Password must be at least 6 characters long!');
-                return false;
-            }
-            
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
-            submitBtn.disabled = true;
-            
-            setTimeout(() => {
-                submitBtn.innerHTML = originalText;
-                submitBtn.disabled = false;
-            }, 3000);
-        });
+            // Clear previous inline errors
+            document.getElementById(modalId).querySelectorAll('.modal-inline-error').forEach(el => el.remove());
 
-        document.getElementById('editUserForm')?.addEventListener('submit', function(e) {
-            const submitBtn = this.querySelector('button[type="submit"]');
-            const originalText = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
-            submitBtn.disabled = true;
-            
-            setTimeout(() => {
-                submitBtn.innerHTML = originalText;
-                submitBtn.disabled = false;
-            }, 3000);
-        });
-
-        // If edit user data is available, populate the edit modal
-        <?php if ($edit_user): ?>
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(() => {
-                if (document.getElementById('edit_user_id')) {
-                    document.getElementById('edit_user_id').value = <?= $edit_user['id'] ?>;
-                    document.getElementById('edit_email').value = '<?= addslashes($edit_user['email'] ?? '') ?>';
-                    document.getElementById('edit_first_name').value = '<?= addslashes($edit_user['first_name'] ?? '') ?>';
-                    document.getElementById('edit_last_name').value = '<?= addslashes($edit_user['last_name'] ?? '') ?>';
-                    document.getElementById('edit_surname').value = '<?= addslashes($edit_user['surname'] ?? '') ?>';
-                    document.getElementById('edit_role_id').value = <?= $edit_user['role_id'] ?>;
-                    document.getElementById('edit_is_active').checked = <?= $edit_user['is_active'] ? 'true' : 'false' ?>;
-                    
-                    document.getElementById('detail_username').textContent = '<?= addslashes($edit_user['username']) ?>';
-                    document.getElementById('detail_created').textContent = '<?= date('M d, Y', strtotime($edit_user['created_at'])) ?>';
-                    document.getElementById('userDetailsDisplay').style.display = 'grid';
-                    
-                    document.getElementById('editModal').classList.add('active');
-                    document.getElementById('modalBackdrop').style.display = 'block';
-                    document.body.style.overflow = 'hidden';
+            let data;
+            try {
+                const response = await fetch(window.location.pathname, {
+                    method: 'POST',
+                    body: new FormData(formEl)
+                });
+                const text = await response.text();
+                try {
+                    data = JSON.parse(text);
+                } catch (_) {
+                    // PHP returned HTML (error page) — show first meaningful line
+                    const plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+                    showModalError(modalId, 'Server error: ' + (plain || 'check PHP error log'));
+                    submitBtn.innerHTML = originalHTML;
+                    submitBtn.disabled  = false;
+                    return;
                 }
-            }, 100);
-        });
-        <?php endif; ?>
-
-        // Remove edit parameter on page load if no edit_user data
-        <?php if (!$edit_user): ?>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (window.location.href.includes('edit=')) {
-                window.history.replaceState({}, document.title, window.location.pathname);
+            } catch (networkErr) {
+                showModalError(modalId, 'Network error — please check your connection.');
+                submitBtn.innerHTML = originalHTML;
+                submitBtn.disabled  = false;
+                return;
             }
-        });
-        <?php endif; ?>
 
-        // Sidebar toggle functionality
+            submitBtn.innerHTML = originalHTML;
+            submitBtn.disabled  = false;
+
+            if (data.success) {
+                onSuccess(data.message);
+            } else {
+                showModalError(modalId, data.message);
+            }
+        }
+
+        // ─────────────────────────────────────────────
+        // CREATE FORM — AJAX submit
+        // ─────────────────────────────────────────────
+        document.getElementById('createUserForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const password        = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            if (password !== confirmPassword) { showModalError('createModal', 'Passwords do not match!'); return; }
+            if (password.length < 6)          { showModalError('createModal', 'Password must be at least 6 characters!'); return; }
+
+            await ajaxSubmit(this, 'createModal', (msg) => {
+                closeCreateModal();
+                showToast(msg, 'success');
+                setTimeout(() => location.reload(), 1500);
+            });
+        });
+
+        // ─────────────────────────────────────────────
+        // EDIT FORM — AJAX submit
+        // ─────────────────────────────────────────────
+        document.getElementById('editUserForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await ajaxSubmit(this, 'editModal', (msg) => {
+                closeEditModal();
+                showToast(msg, 'success');
+                setTimeout(() => location.reload(), 1500);
+            });
+        });
+
+        // ─────────────────────────────────────────────
+        // RESET PASSWORD FORM — AJAX submit
+        // ─────────────────────────────────────────────
+        document.getElementById('resetPasswordForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const newPassword     = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_new_password').value;
+            if (newPassword !== confirmPassword) { showModalError('resetModal', 'Passwords do not match!'); return; }
+            if (newPassword.length < 6)          { showModalError('resetModal', 'Password must be at least 6 characters!'); return; }
+
+            await ajaxSubmit(this, 'resetModal', (msg) => {
+                closeResetModal();
+                showToast(msg, 'success');
+            });
+        });
+        // ─────────────────────────────────────────────
+        function showToast(message, type) {
+            // Remove any existing toast
+            document.querySelectorAll('.ajax-toast').forEach(t => t.remove());
+
+            const toast = document.createElement('div');
+            toast.className = 'ajax-toast alert alert-' + type;
+            toast.style.cssText = [
+                'position:fixed', 'top:20px', 'right:20px', 'z-index:99999',
+                'min-width:280px', 'max-width:400px', 'box-shadow:0 4px 20px rgba(0,0,0,.2)',
+                'display:flex', 'align-items:center', 'gap:10px',
+                'transition:opacity .3s, transform .3s',
+                'opacity:0', 'transform:translateY(-10px)'
+            ].join(';');
+            toast.innerHTML = `
+                <i class="bi ${type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'}"></i>
+                <span>${message}</span>`;
+            document.body.appendChild(toast);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                toast.style.opacity   = '1';
+                toast.style.transform = 'translateY(0)';
+            });
+
+            // Animate out after 4 s
+            setTimeout(() => {
+                toast.style.opacity   = '0';
+                toast.style.transform = 'translateY(-10px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // ─────────────────────────────────────────────
+        // INLINE MODAL MESSAGE (error only)
+        // ─────────────────────────────────────────────
+        function showModalError(modalId, message) {
+            const modal = document.getElementById(modalId);
+            modal.querySelectorAll('.modal-inline-error').forEach(e => e.remove());
+            const el = document.createElement('div');
+            el.className = 'modal-inline-error alert alert-danger';
+            el.style.cssText = 'margin:0 0 12px 0; display:flex; align-items:center; gap:8px;';
+            el.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i><span>${message}</span>`;
+            modal.querySelector('.modal-body').prepend(el);
+        }
+
+        // ─────────────────────────────────────────────
+        // SIDEBAR TOGGLE
+        // ─────────────────────────────────────────────
         document.getElementById('sidebarToggle')?.addEventListener('click', function() {
             const sidebar = document.querySelector('.sidebar');
             if (sidebar) {
@@ -799,12 +848,14 @@ while ($role = $roles_result->fetch_assoc()) {
             }
         });
 
-        // Auto-dismiss alerts after 5 seconds
+        // ─────────────────────────────────────────────
+        // AUTO-DISMISS ALERTS after 5 seconds
+        // ─────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', function() {
             const alerts = document.querySelectorAll('.alert');
             alerts.forEach(alert => {
                 setTimeout(() => {
-                    alert.style.opacity = '0';
+                    alert.style.opacity   = '0';
                     alert.style.transform = 'translateY(-20px)';
                     setTimeout(() => alert.remove(), 300);
                 }, 5000);
