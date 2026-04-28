@@ -1,1774 +1,1151 @@
 <?php
+/**
+ * add_data.php — Monthly Data Entry, Validation & Manager Approval
+ * Roles: admin (edit + notify), technical_manager / commercial_manager (approve)
+ */
+
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
 require_once 'db.php';
 require_once 'auth_functions.php';
 require_once 'role_functions.php';
+require_once 'email_config.php';
 
-// Start session if not already started
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+// ═══════════════════════════════════════════════════════════════════
+// 1. PHPMAILER BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════════
+$phpmailer_loaded = false;
+foreach ([
+    __DIR__ . '/vendor/autoload.php',
+    __DIR__ . '/phpmailer/src/PHPMailer.php',
+    __DIR__ . '/PHPMailer/src/PHPMailer.php',
+] as $path) {
+    if (!file_exists($path)) continue;
+    require_once $path;
+    if (strpos($path, 'autoload.php') === false) {
+        $d = dirname($path);
+        foreach (['SMTP.php', 'Exception.php'] as $f)
+            if (file_exists("$d/$f")) require_once "$d/$f";
+    }
+    $phpmailer_loaded = true;
+    break;
 }
 
-// Check if user is logged in
+// ═══════════════════════════════════════════════════════════════════
+// 2. SMTP SEND — single reusable function
+// ═══════════════════════════════════════════════════════════════════
+function smtp_send(string $to_email, string $to_name, string $subject, string $html): bool {
+    global $phpmailer_loaded;
+    if (!$phpmailer_loaded) { error_log("PHPMailer missing — cannot email $to_email"); return false; }
+    try {
+        $m = new PHPMailer\PHPMailer\PHPMailer(true);
+        $m->isSMTP();
+        $m->Host       = SMTP_HOST;
+        $m->SMTPAuth   = true;
+        $m->Username   = SMTP_USERNAME;
+        $m->Password   = SMTP_PASSWORD;
+        $m->SMTPSecure = SMTP_ENCRYPTION === 'tls'
+            ? PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS
+            : PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMIME;
+        $m->Port       = SMTP_PORT;
+        // Uncomment on localhost if SSL errors occur:
+        // $m->SMTPOptions = ['ssl' => ['verify_peer' => false, 'allow_self_signed' => true]];
+        $m->setFrom(EMAIL_FROM, EMAIL_FROM_NAME);
+        $m->addAddress($to_email, $to_name);
+        $m->addReplyTo(EMAIL_FROM, EMAIL_FROM_NAME);
+        $m->isHTML(true);
+        $m->Subject = $subject;
+        $m->Body    = $html;
+        $m->AltBody = strip_tags(str_replace(['<br>', '</p>', '</li>'], "\n", $html));
+        $m->send();
+        return true;
+    } catch (PHPMailer\PHPMailer\Exception $e) {
+        error_log("PHPMailer [$to_email]: " . $e->getMessage());
+        return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 3. EMAIL TEMPLATES — professional design
+// ═══════════════════════════════════════════════════════════════════
+function email_wrap(string $accent, string $icon_emoji, string $title, string $body_html): string {
+    $year = date('Y');
+    $org  = EMAIL_FROM_NAME;
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;color:#333;}
+  .shell{max-width:620px;margin:32px auto;}
+  .header{background:$accent;border-radius:10px 10px 0 0;padding:36px 40px;text-align:center;}
+  .header h1{color:#fff;font-size:22px;font-weight:700;letter-spacing:.3px;}
+  .header p{color:rgba(255,255,255,.82);font-size:14px;margin-top:6px;}
+  .body{background:#fff;padding:36px 40px;border:1px solid #e0e5ec;border-top:none;}
+  .body p{font-size:15px;line-height:1.75;color:#444;margin-bottom:14px;}
+  .info-box{background:#f8faff;border-left:4px solid $accent;border-radius:0 8px 8px 0;padding:16px 20px;margin:20px 0;}
+  .info-box table{border-collapse:collapse;width:100%;}
+  .info-box td{padding:5px 0;font-size:14px;color:#2c3e50;vertical-align:top;}
+  .info-box td:first-child{font-weight:600;white-space:nowrap;padding-right:16px;width:140px;}
+  .cta{text-align:center;margin:28px 0 8px;}
+  .cta a{display:inline-block;background:$accent;color:#fff!important;text-decoration:none;padding:14px 38px;border-radius:8px;font-size:15px;font-weight:600;letter-spacing:.2px;}
+  .fallback{text-align:center;font-size:12px;color:#999;margin-top:10px;}
+  .fallback a{color:#1976d2;word-break:break-all;}
+  .notice{background:#fffbf0;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;padding:12px 18px;margin-top:20px;font-size:13px;color:#7c5b00;}
+  .footer{background:#1e2d3d;border-radius:0 0 10px 10px;padding:18px 30px;text-align:center;}
+  .footer p{color:#8fa3b0;font-size:12px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="header">
+    <h1>$icon_emoji &nbsp;$org</h1>
+    <p>$title</p>
+  </div>
+  <div class="body">
+    $body_html
+  </div>
+  <div class="footer">
+    <p>This is an automated message from <strong>$org</strong>.<br>
+    Please do not reply directly to this email.<br>
+    &copy; $year MUWASCO Water &amp; Sewerage Company</p>
+  </div>
+</div>
+</body>
+</html>
+HTML;
+}
+
+/**
+ * Email 1 — Sent to manager asking them to review the report.
+ */
+function mail_review_request(int $month_id, string $mgr_role, array $mgr, string $token): bool {
+    global $conn;
+    $s = $conn->prepare("SELECT * FROM months WHERE id = ?");
+    $s->bind_param("i", $month_id); $s->execute();
+    $r = $s->get_result(); $month = $r->fetch_assoc(); $r->free(); $s->close();
+
+    $base   = base_url();
+    $link   = "$base/add_data.php?month_id=$month_id&approval_token=$token&manager_role=$mgr_role";
+    $title  = $mgr_role === 'technical_manager' ? 'Technical Manager' : 'Commercial Manager';
+    $sects  = $mgr_role === 'technical_manager'
+            ? 'Production, Infrastructure, Water Quality, NRW &amp; Operations'
+            : 'Revenue, Customer Care, Accounts, GIS, HR &amp; Related Sections';
+    $name   = trim("{$mgr['first_name']} {$mgr['last_name']}") ?: $mgr['username'];
+    $period = !empty($month['start_date']) && !empty($month['end_date'])
+            ? date('d M Y', strtotime($month['start_date'])) . ' – ' . date('d M Y', strtotime($month['end_date']))
+            : 'N/A';
+
+    $body = "
+    <p>Dear <strong>" . he($name) . "</strong>,</p>
+    <p>I hope this message finds you well. The monthly operations report for <strong>" . he($month['name']) . "</strong> has been compiled and is ready for your review and formal approval.</p>
+    <p>Kindly review the figures within your area of responsibility and confirm their accuracy before the report is finalised.</p>
+    <div class='info-box'>
+      <table>
+        <tr><td>Report Period</td><td>" . he($month['name']) . "</td></tr>
+        <tr><td>Dates</td><td>$period</td></tr>
+        <tr><td>Your Role</td><td>$title</td></tr>
+        <tr><td>Sections</td><td>$sects</td></tr>
+        <tr><td>Link Valid</td><td>7 days from date of this email</td></tr>
+      </table>
+    </div>
+    <p>Please click the button below to open the data review page, verify the entries, and submit your approval or request corrections where necessary.</p>
+    <div class='cta'><a href='" . he($link) . "'>Open Review &amp; Approval Page</a></div>
+    <p class='fallback'>Button not working? Copy and paste this link into your browser:<br>
+      <a href='" . he($link) . "'>" . he($link) . "</a></p>
+    <div class='notice'>
+      <strong>⏰ Please note:</strong> This approval link will expire in <strong>7 days</strong>.
+      If you are unable to act within this period, please contact the system administrator to have a new link issued.
+    </div>";
+
+    $html = email_wrap(
+        'linear-gradient(135deg,#1565c0,#1976d2)',
+        '📋',
+        'Monthly Report — Review &amp; Approval Required',
+        $body
+    );
+
+    return smtp_send($mgr['email'], $name,
+        "Action Required: Please Review and Approve the {$month['name']} Monthly Report",
+        $html);
+}
+
+/**
+ * Email 2 — Sent to all admins after a manager approves or rejects.
+ */
+function mail_admin_decision(int $month_id, string $mgr_role, array $mgr, string $action, string $reason = ''): int {
+    global $conn;
+    $s = $conn->prepare("SELECT * FROM months WHERE id = ?");
+    $s->bind_param("i", $month_id); $s->execute();
+    $r = $s->get_result(); $month = $r->fetch_assoc(); $r->free(); $s->close();
+
+    $q      = $conn->query("SELECT u.email, u.first_name, u.last_name, u.username FROM users u JOIN roles r ON u.role_id=r.id WHERE r.name='admin' AND u.email IS NOT NULL AND u.email != ''");
+    $admins = []; while ($row = $q->fetch_assoc()) $admins[] = $row; $q->free();
+
+    $title    = $mgr_role === 'technical_manager' ? 'Technical Manager' : 'Commercial Manager';
+    $mgr_name = trim("{$mgr['first_name']} {$mgr['last_name']}") ?: $mgr['username'];
+    $ts       = date('d M Y \a\t H:i');
+    $link     = base_url() . "/add_data.php?month_id=$month_id";
+
+    if ($action === 'approve') {
+        $subj   = "Monthly Report Approved — {$month['name']} ({$title})";
+        $accent = 'linear-gradient(135deg,#1b5e20,#2e7d32)';
+        $emoji  = '✅';
+        $header = 'Report Approved Successfully';
+        $body   = "
+        <p>Dear Administrator,</p>
+        <p>This is to confirm that the <strong>$title</strong>, <strong>" . he($mgr_name) . "</strong>, has reviewed and formally <strong>approved</strong> the data entries for the <strong>" . he($month['name']) . "</strong> monthly report.</p>
+        <div class='info-box'>
+          <table>
+            <tr><td>Report</td><td>" . he($month['name']) . "</td></tr>
+            <tr><td>Approved By</td><td>" . he($mgr_name) . " &mdash; $title</td></tr>
+            <tr><td>Date &amp; Time</td><td>$ts</td></tr>
+          </table>
+        </div>
+        <p>You may now proceed with the final submission of the report once all other required approvals are in place.</p>
+        <div class='cta'><a href='" . he($link) . "'>View Report Status</a></div>";
+    } else {
+        $subj   = "Corrections Required — {$month['name']} Monthly Report ({$title})";
+        $accent = 'linear-gradient(135deg,#7f0000,#c62828)';
+        $emoji  = '⚠️';
+        $header = 'Corrections Requested by Manager';
+        $reason_block = $reason
+            ? "<div class='info-box' style='border-color:#c62828;background:#fff8f8;'>
+                 <table><tr><td style='font-weight:600;padding-right:16px;white-space:nowrap;'>Reason</td>
+                 <td>" . he($reason) . "</td></tr></table></div>"
+            : '';
+        $body   = "
+        <p>Dear Administrator,</p>
+        <p>Please be advised that the <strong>$title</strong>, <strong>" . he($mgr_name) . "</strong>, has reviewed the <strong>" . he($month['name']) . "</strong> monthly report and has <strong>requested corrections</strong> before approval can be granted.</p>
+        <div class='info-box'>
+          <table>
+            <tr><td>Report</td><td>" . he($month['name']) . "</td></tr>
+            <tr><td>Reviewed By</td><td>" . he($mgr_name) . " &mdash; $title</td></tr>
+            <tr><td>Date &amp; Time</td><td>$ts</td></tr>
+          </table>
+        </div>
+        $reason_block
+        <p>Kindly log in to the system, make the necessary corrections, and re-submit the review request to the manager once the data has been updated.</p>
+        <div class='cta'><a href='" . he($link) . "'>Log In &amp; Make Corrections</a></div>";
+    }
+
+    $html = email_wrap($accent, $emoji, $header, $body);
+
+    $sent = 0;
+    foreach ($admins as $admin) {
+        $aname = trim("{$admin['first_name']} {$admin['last_name']}") ?: $admin['username'];
+        if (smtp_send($admin['email'], $aname, $subj, $html)) $sent++;
+    }
+    return $sent;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 4. HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function he(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
+
+function base_url(): string {
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    return $proto . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
+}
+
+/** Fetch one row, free & close. */
+function db_row(string $sql, string $types, ...$vals): ?array {
+    global $conn;
+    $s = $conn->prepare($sql); $s->bind_param($types, ...$vals); $s->execute();
+    $r = $s->get_result(); $row = $r->fetch_assoc(); $r->free(); $s->close();
+    return $row ?: null;
+}
+
+/** Fetch all rows, free & close. */
+function db_rows(string $sql, string $types = '', ...$vals): array {
+    global $conn;
+    if ($types === '') {
+        $r = $conn->query($sql); $rows = []; while ($row = $r->fetch_assoc()) $rows[] = $row; $r->free(); return $rows;
+    }
+    $s = $conn->prepare($sql); $s->bind_param($types, ...$vals); $s->execute();
+    $r = $s->get_result(); $rows = []; while ($row = $r->fetch_assoc()) $rows[] = $row; $r->free(); $s->close();
+    return $rows;
+}
+
+/** Execute a write statement, return bool. */
+function db_exec(string $sql, string $types, ...$vals): bool {
+    global $conn;
+    $s = $conn->prepare($sql); $s->bind_param($types, ...$vals); $ok = $s->execute(); $s->close();
+    return $ok;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 5. DOMAIN HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function getApproval(int $month_id, string $role): ?array {
+    return db_row("SELECT * FROM month_approvals WHERE month_id=? AND manager_role=?", "is", $month_id, $role);
+}
+
+function catsFilled(int $month_id, array $cats): bool {
+    if (empty($cats)) return false;
+    $filled = 0;
+    foreach ($cats as $cid) {
+        $row = db_row(
+            "SELECT COUNT(*) AS t,
+                    SUM(CASE WHEN md.value IS NULL OR TRIM(md.value)='' THEN 1 ELSE 0 END) AS e
+             FROM parameters p
+             LEFT JOIN monthly_data md ON p.id=md.parameter_id AND md.month_id=?
+             WHERE p.category_id=?",
+            "ii", $month_id, $cid
+        );
+        if ($row && $row['t'] > 0 && $row['e'] == 0) $filled++;
+    }
+    return $filled === count($cats);
+}
+
+function getCategoriesWithParams(int $role_id, bool $is_admin): array {
+    global $conn;
+    // Step 1 – categories
+    if ($is_admin) {
+        $s = $conn->prepare("SELECT DISTINCT pc.* FROM parameter_categories pc JOIN parameters p ON pc.id=p.category_id ORDER BY pc.display_order");
+        $s->execute();
+    } else {
+        $s = $conn->prepare("SELECT DISTINCT pc.* FROM parameter_categories pc JOIN parameters p ON pc.id=p.category_id JOIN role_parameter_assignments rpa ON p.id=rpa.parameter_id WHERE rpa.role_id=? ORDER BY pc.display_order");
+        $s->bind_param("i", $role_id); $s->execute();
+    }
+    $r = $s->get_result(); $cats = []; while ($row = $r->fetch_assoc()) $cats[] = $row; $r->free(); $s->close();
+
+    // Step 2 – parameters per category
+    $out = [];
+    foreach ($cats as $cat) {
+        $params = $is_admin
+            ? db_rows("SELECT p.* FROM parameters p WHERE p.category_id=? ORDER BY p.code", "i", $cat['id'])
+            : db_rows("SELECT p.* FROM parameters p JOIN role_parameter_assignments rpa ON p.id=rpa.parameter_id WHERE rpa.role_id=? AND p.category_id=? ORDER BY p.code", "ii", $role_id, $cat['id']);
+        if (!empty($params)) $out[] = ['category' => $cat, 'parameters' => $params];
+    }
+    return $out;
+}
+
+function isSaved(int $month_id, int $cat_id, int $role_id, bool $is_admin): bool {
+    $ids = $is_admin
+        ? array_column(db_rows("SELECT id FROM parameters WHERE category_id=?", "i", $cat_id), 'id')
+        : array_column(db_rows("SELECT p.id FROM parameters p JOIN role_parameter_assignments rpa ON p.id=rpa.parameter_id WHERE rpa.role_id=? AND p.category_id=?", "ii", $role_id, $cat_id), 'id');
+    if (empty($ids)) return false;
+    $in  = implode(',', array_map('intval', $ids));
+    $row = db_row("SELECT COUNT(*) AS n FROM monthly_data WHERE month_id=? AND parameter_id IN($in)", "i", $month_id);
+    return $row && $row['n'] > 0;
+}
+
+function validateSection(int $month_id, int $cat_id): true|array {
+    $rows  = db_rows("SELECT p.code, p.label, p.required, md.value FROM parameters p LEFT JOIN monthly_data md ON p.id=md.parameter_id AND md.month_id=? WHERE p.category_id=? ORDER BY p.code", "ii", $month_id, $cat_id);
+    $miss  = [];
+    $empty = [];
+    foreach ($rows as $r) {
+        $v = trim($r['value'] ?? '');
+        $e = $v === '';
+        if ($r['required'] && $e) $miss[]  = ['code' => $r['code'], 'label' => $r['label']];
+        if ($e)                   $empty[] = ['code' => $r['code'], 'label' => $r['label'], 'required' => $r['required']];
+    }
+    return (!empty($miss) || !empty($empty)) ? ['missing_required' => $miss, 'empty_values' => $empty] : true;
+}
+
+function aprBadge(string $status): string {
+    $map = [
+        'pending'  => ['clock',        '#6c757d', 'Not Notified'],
+        'notified' => ['paper-plane',  '#e6a817', 'Awaiting Review'],
+        'approved' => ['check-circle', '#28a745', 'Approved'],
+        'rejected' => ['times-circle', '#dc3545', 'Rejected'],
+    ];
+    [$ic, $col, $lb] = $map[$status] ?? ['question-circle', '#999', ucfirst($status)];
+    return "<span class='aprbadge $status' style='color:$col'><i class='fas fa-$ic'></i> $lb</span>";
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 6. SESSION & AUTH
+// ═══════════════════════════════════════════════════════════════════
+if (session_status() === PHP_SESSION_NONE) session_start();
 if (!isset($_SESSION['user_id'])) {
     $_SESSION['redirect_url'] = $_SERVER['REQUEST_URI'];
-    header('Location: login.php');
-    exit();
+    header('Location: login.php'); exit;
 }
-
-// Get month_id from URL or redirect
-if (!isset($_GET['month_id'])) {
-    header('Location: months.php');
-    exit;
-}
+if (!isset($_GET['month_id'])) { header('Location: months.php'); exit; }
 
 $month_id = intval($_GET['month_id']);
+$month    = db_row("SELECT * FROM months WHERE id=?", "i", $month_id);
+if (!$month) die("Month not found.");
 
-// Get month details
-$month_query = $conn->prepare("SELECT * FROM months WHERE id = ?");
-$month_query->bind_param("i", $month_id);
-$month_query->execute();
-$month = $month_query->get_result()->fetch_assoc();
+$is_submitted = $month['status'] === 'submitted';
+$user_id      = $_SESSION['user_id'];
+$user_info    = db_row("SELECT u.*, r.name AS role_name, r.description AS role_description FROM users u LEFT JOIN roles r ON u.role_id=r.id WHERE u.id=?", "i", $user_id);
+if (!$user_info) { session_destroy(); header('Location: login.php'); exit; }
 
-if (!$month) {
-    die("Month not found");
+$role_id    = (int)$user_info['role_id'];
+$is_admin   = $user_info['role_name'] === 'admin';
+$is_tech_mgr= $user_info['role_name'] === 'technical_manager';
+$is_comm_mgr= $user_info['role_name'] === 'commercial_manager';
+
+// Category assignment constants
+const TECH_CATS = [12, 13, 14, 15, 16];
+const COMM_CATS = [17, 18, 19, 20, 21, 22, 23, 24];
+const ML_PARAMS  = [221, 222, 172, 174, 305]; // multiline textarea IDs
+
+// ═══════════════════════════════════════════════════════════════════
+// 7. POST HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+$success = $error = $email_note = null;
+$appr_token = trim($_GET['approval_token'] ?? '');
+$appr_role  = trim($_GET['manager_role']   ?? '');
+$is_POST    = $_SERVER['REQUEST_METHOD'] === 'POST';
+
+// ── 7a. Manager: approve/reject via email token ──────────────────
+if ($appr_token && $appr_role && ($is_tech_mgr || $is_comm_mgr) && $is_POST) {
+    $va = db_row("SELECT * FROM month_approvals WHERE month_id=? AND manager_role=? AND approval_token=? AND token_expires_at>NOW()", "iss", $month_id, $appr_role, $appr_token);
+    if ($va) {
+        $resp   = $_POST['response'] ?? '';
+        $reason = trim($_POST['rejection_reason'] ?? '');
+        if ($resp === 'approve') {
+            db_exec("UPDATE month_approvals SET status='approved', approved_at=NOW(), approved_by=? WHERE id=?", "ii", $user_id, $va['id']);
+            $sent    = mail_admin_decision($month_id, $appr_role, $user_info, 'approve');
+            $success = "Your approval has been recorded successfully." . ($sent ? " The administrator has been notified." : " Note: Admin email notification could not be sent.");
+        } elseif ($resp === 'reject') {
+            db_exec("UPDATE month_approvals SET status='rejected', rejection_reason=?, approved_at=NOW(), approved_by=? WHERE id=?", "sii", $reason, $user_id, $va['id']);
+            $sent  = mail_admin_decision($month_id, $appr_role, $user_info, 'reject', $reason);
+            $error = "Your feedback has been submitted." . ($sent ? " The administrator has been notified." : " Note: Admin email notification could not be sent.");
+        }
+    }
 }
 
-// Check if month is already submitted
-$is_submitted = ($month['status'] === 'submitted');
-
-// Get user info and role
-$user_id = $_SESSION['user_id'];
-$user_query = $conn->prepare("
-    SELECT u.*, r.name as role_name, r.description as role_description 
-    FROM users u 
-    LEFT JOIN roles r ON u.role_id = r.id 
-    WHERE u.id = ?
-");
-$user_query->bind_param("i", $user_id);
-$user_query->execute();
-$user_info = $user_query->get_result()->fetch_assoc();
-
-if (!$user_info) {
-    session_destroy();
-    header('Location: login.php');
-    exit();
-}
-
-$role_id = $user_info['role_id'];
-$is_admin = ($user_info['role_name'] === 'admin');
-
-
-
-// Function to get user's categories with parameters
-function getUserCategoriesWithParameters($role_id, $is_admin) {
-    global $conn;
-    
-    if ($is_admin) {
-        $query = "
-            SELECT DISTINCT pc.* 
-            FROM parameter_categories pc
-            JOIN parameters p ON pc.id = p.category_id
-            ORDER BY pc.display_order
-        ";
-        $result = $conn->query($query);
+// ── 7b. Manager: direct approve (logged-in, no token) ───────────
+if ($is_POST && ($is_tech_mgr || $is_comm_mgr) && ($_POST['action'] ?? '') === 'manager_direct_approve') {
+    $my_role = $is_tech_mgr ? 'technical_manager' : 'commercial_manager';
+    $my_cats = $is_tech_mgr ? TECH_CATS : COMM_CATS;
+    if (!catsFilled($month_id, $my_cats)) {
+        $error = "Approval cannot be submitted at this time — your assigned sections are not yet fully completed.";
     } else {
-        $stmt = $conn->prepare("
-            SELECT DISTINCT pc.* 
-            FROM parameter_categories pc
-            JOIN parameters p ON pc.id = p.category_id
-            JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
-            WHERE rpa.role_id = ?
-            ORDER BY pc.display_order
-        ");
-        $stmt->bind_param("i", $role_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-    }
-    
-    $categories = [];
-    while ($row = $result->fetch_assoc()) {
-        $categories[] = $row;
-    }
-    
-    if (!$is_admin && isset($stmt)) {
-        $stmt->close();
-    }
-    
-    $categories_with_params = [];
-    foreach ($categories as $category) {
-        if ($is_admin) {
-            $stmt = $conn->prepare("
-                SELECT p.* 
-                FROM parameters p 
-                WHERE p.category_id = ? 
-                ORDER BY p.code
-            ");
-            $stmt->bind_param("i", $category['id']);
+        $ex = db_row("SELECT id FROM month_approvals WHERE month_id=? AND manager_role=?", "is", $month_id, $my_role);
+        if ($ex) {
+            db_exec("UPDATE month_approvals SET status='approved', approved_at=NOW(), approved_by=? WHERE month_id=? AND manager_role=?", "iis", $user_id, $month_id, $my_role);
         } else {
-            $stmt = $conn->prepare("
-                SELECT p.* 
-                FROM parameters p
-                JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
-                WHERE rpa.role_id = ? AND p.category_id = ?
-                ORDER BY p.code
-            ");
-            $stmt->bind_param("ii", $role_id, $category['id']);
+            db_exec("INSERT INTO month_approvals (month_id, manager_role, status, approved_at, approved_by, notified_at) VALUES(?,?,'approved',NOW(),?,NOW())", "isi", $month_id, $my_role, $user_id);
         }
-        
-        $stmt->execute();
-        $params_result = $stmt->get_result();
-        
-        $parameters = [];
-        while ($param = $params_result->fetch_assoc()) {
-            $parameters[] = $param;
-        }
-        
-        if (!empty($parameters)) {
-            $categories_with_params[] = [
-                'category' => $category,
-                'parameters' => $parameters
-            ];
-        }
-        
-        $stmt->close();
+        $sent    = mail_admin_decision($month_id, $my_role, $user_info, 'approve');
+        $success = "Your approval has been recorded. All data in your sections has been confirmed as accurate.";
+        if (!$sent) $email_note = "The admin notification email could not be sent. Please verify your PHPMailer configuration.";
     }
-    
-    return $categories_with_params;
 }
 
-// Function to check if section is saved
-function isSectionSaved($month_id, $category_id, $role_id, $is_admin) {
-    global $conn;
-    
-    if ($is_admin) {
-        $stmt = $conn->prepare("
-            SELECT p.id 
-            FROM parameters p 
-            WHERE p.category_id = ?
-        ");
-        $stmt->bind_param("i", $category_id);
+// ── 7c. Admin: notify manager ────────────────────────────────────
+if ($is_POST && $is_admin && ($_POST['action'] ?? '') === 'notify_manager') {
+    $mgr_role = $_POST['manager_role'] ?? '';
+    $mgr      = db_row("SELECT u.id, u.email, u.first_name, u.last_name, u.username FROM users u JOIN roles r ON u.role_id=r.id WHERE r.name=? AND u.email IS NOT NULL AND u.email!='' LIMIT 1", "s", $mgr_role);
+    if (!$mgr) {
+        $error = "No user account was found for the role '$mgr_role' with a registered email address. Please check the user settings.";
     } else {
-        $stmt = $conn->prepare("
-            SELECT p.id 
-            FROM parameters p
-            JOIN role_parameter_assignments rpa ON p.id = rpa.parameter_id
-            WHERE rpa.role_id = ? AND p.category_id = ?
-        ");
-        $stmt->bind_param("ii", $role_id, $category_id);
-    }
-    
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $param_ids = [];
-    while ($row = $result->fetch_assoc()) {
-        $param_ids[] = $row['id'];
-    }
-    $stmt->close();
-    
-    if (empty($param_ids)) return false;
-    
-    $param_ids_str = implode(',', $param_ids);
-    $check_stmt = $conn->prepare("
-        SELECT COUNT(*) as saved_count 
-        FROM monthly_data 
-        WHERE month_id = ? AND parameter_id IN ($param_ids_str)
-    ");
-    $check_stmt->bind_param("i", $month_id);
-    $check_stmt->execute();
-    $check_result = $check_stmt->get_result()->fetch_assoc();
-    $check_stmt->close();
-    
-    return $check_result && $check_result['saved_count'] > 0;
-}
-
-// Function to validate section data before final submission
-function validateSectionForSubmission($month_id, $category_id, $is_admin) {
-    global $conn;
-    
-    // Get all parameters for this category
-    $stmt = $conn->prepare("
-        SELECT p.id, p.code, p.label, p.required, md.value
-        FROM parameters p
-        LEFT JOIN monthly_data md ON p.id = md.parameter_id AND md.month_id = ?
-        WHERE p.category_id = ?
-        ORDER BY p.code
-    ");
-    $stmt->bind_param("ii", $month_id, $category_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $issues = [];
-    $missing_required = [];
-    $empty_values = [];
-    
-    while ($row = $result->fetch_assoc()) {
-        $value = trim($row['value'] ?? '');
-        $is_empty = empty($value);
-        
-        // Check required fields
-        if ($row['required'] && $is_empty) {
-            $missing_required[] = [
-                'code' => $row['code'],
-                'label' => $row['label']
-            ];
-        }
-        
-        // Check all fields (including non-required) that are empty
-        if ($is_empty) {
-            $empty_values[] = [
-                'code' => $row['code'],
-                'label' => $row['label'],
-                'required' => $row['required']
-            ];
-        }
-    }
-    
-    $stmt->close();
-    
-    if (!empty($missing_required) || !empty($empty_values)) {
-        $issues['missing_required'] = $missing_required;
-        $issues['empty_values'] = $empty_values;
-        return $issues;
-    }
-    
-    return true; // All good
-}
-
-// Handle form submission
-$success = null;
-$error = null;
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && !$is_submitted) {
-    $action = $_POST['action'] ?? '';
-    
-    if ($action === 'save_section') {
-        $category_id = intval($_POST['category_id']);
-        $data = $_POST['data'] ?? [];
-        
-        // Validate: Check for empty required fields
-        $validation_errors = [];
-        foreach ($data as $code => $value) {
-            $value = trim($value);
-            // Get parameter details
-            $stmt = $conn->prepare("SELECT id, required FROM parameters WHERE code = ?");
-            $stmt->bind_param("s", $code);
-            $stmt->execute();
-            $param = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            
-            if ($param && $param['required'] && empty($value)) {
-                // For empty required fields, automatically insert dash
-                $data[$code] = '-';
-            } elseif (empty($value)) {
-                // For empty non-required fields, also insert dash
-                $data[$code] = '-';
-            }
-        }
-        
-        $conn->begin_transaction();
-        try {
-            foreach($data as $code => $value) {
-                $value = trim($value);
-                
-                $stmt = $conn->prepare("SELECT p.id FROM parameters p WHERE p.code = ?");
-                $stmt->bind_param("s", $code);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $param = $result->fetch_assoc();
-                
-                if ($param) {
-                    // Check if user has access to this parameter
-                    if (!hasParameterAccess($param['id'], $role_id, $is_admin)) {
-                        throw new Exception("You don't have permission to edit parameter: $code");
-                    }
-                    
-                    // Insert or update data
-                    $stmt = $conn->prepare("
-                        INSERT INTO monthly_data (month_id, parameter_id, value) 
-                        VALUES (?, ?, ?)
-                        ON DUPLICATE KEY UPDATE value = VALUES(value)
-                    ");
-                    $stmt->bind_param("iis", $month_id, $param['id'], $value);
-                    if (!$stmt->execute()) {
-                        throw new Exception("Error saving parameter $code: " . $stmt->error);
-                    }
-                    $stmt->close();
-                }
-            }
-            $conn->commit();
-            $success = "Section data saved successfully! Empty fields have been marked with '-'.";
-        } catch (Exception $e) {
-            $conn->rollback();
-            $error = "Error saving section: " . $e->getMessage();
-        }
-    } elseif ($action === 'submit_final' && $is_admin) {
-        // Validate all sections before final submission
-        $all_valid = true;
-        $validation_results = [];
-        
-        // Get all categories
-        $categories_with_params = getUserCategoriesWithParameters($role_id, $is_admin);
-        
-        foreach ($categories_with_params as $category_data) {
-            $category_id = $category_data['category']['id'];
-            $validation = validateSectionForSubmission($month_id, $category_id, $is_admin);
-            
-            if ($validation !== true) {
-                $all_valid = false;
-                $validation_results[$category_data['category']['name']] = $validation;
-            }
-        }
-        
-        if (!$all_valid) {
-            // Build comprehensive error message
-            $error = "Cannot submit final report. Please fix the following issues:<br><br>";
-            
-            foreach ($validation_results as $category_name => $issues) {
-                $error .= "<strong>$category_name:</strong><br>";
-                
-                if (!empty($issues['missing_required'])) {
-                    $error .= "&nbsp;&nbsp;• Missing required fields:<br>";
-                    foreach ($issues['missing_required'] as $field) {
-                        $error .= "&nbsp;&nbsp;&nbsp;&nbsp;- {$field['code']}: {$field['label']}<br>";
-                    }
-                }
-                
-                if (!empty($issues['empty_values'])) {
-                    $error .= "&nbsp;&nbsp;• Empty fields (please enter value or '-'):<br>";
-                    foreach ($issues['empty_values'] as $field) {
-                        $error .= "&nbsp;&nbsp;&nbsp;&nbsp;- {$field['code']}: {$field['label']}";
-                        $error .= $field['required'] ? " (Required)" : " (Optional)";
-                        $error .= "<br>";
-                    }
-                }
-                $error .= "<br>";
-            }
-            
-            $error .= "<strong>Instructions:</strong><br>";
-            $error .= "1. Required fields must have a value<br>";
-            $error .= "2. Optional fields should have a value or '-' to indicate 'not applicable'<br>";
-            $error .= "3. Click 'Save This Section' for each section before final submission";
+        $token  = bin2hex(random_bytes(32));
+        $expiry = date('Y-m-d H:i:s', strtotime('+7 days'));
+        $ex     = db_row("SELECT id FROM month_approvals WHERE month_id=? AND manager_role=?", "is", $month_id, $mgr_role);
+        if ($ex) {
+            db_exec("UPDATE month_approvals SET approval_token=?, token_expires_at=?, notified_at=NOW(), status='notified' WHERE month_id=? AND manager_role=?", "ssis", $token, $expiry, $month_id, $mgr_role);
         } else {
-            // All valid, proceed with submission
-            $conn->begin_transaction();
-            try {
-                // First, ensure all empty fields have dashes
-                $update_stmt = $conn->prepare("
-                    UPDATE monthly_data md
-                    JOIN parameters p ON md.parameter_id = p.id
-                    SET md.value = '-'
-                    WHERE md.month_id = ? AND (md.value = '' OR md.value IS NULL)
-                ");
-                $update_stmt->bind_param("i", $month_id);
-                $update_stmt->execute();
-                $update_stmt->close();
-                
-                // Update month status
-                $stmt = $conn->prepare("UPDATE months SET status = 'submitted' WHERE id = ?");
-                $stmt->bind_param("i", $month_id);
-                
-                if ($stmt->execute()) {
-                    $conn->commit();
-                    $success = "Final report submitted successfully! All data has been verified and empty fields marked with '-'.";
-                    $is_submitted = true;
-                    $month['status'] = 'submitted';
-                } else {
-                    throw new Exception("Error updating month status: " . $conn->error);
-                }
-            } catch (Exception $e) {
-                $conn->rollback();
-                $error = "Error submitting final report: " . $e->getMessage();
-            }
+            db_exec("INSERT INTO month_approvals (month_id, manager_role, approval_token, token_expires_at, notified_at, status) VALUES(?,?,?,?,NOW(),'notified')", "isss", $month_id, $mgr_role, $token, $expiry);
+        }
+        $label   = $mgr_role === 'technical_manager' ? 'Technical' : 'Commercial';
+        $mgr_name= trim("{$mgr['first_name']} {$mgr['last_name']}") ?: $mgr['username'];
+        $ok      = mail_review_request($month_id, $mgr_role, $mgr, $token);
+        if ($ok) {
+            $success = "The review request has been sent to {$label} Manager {$mgr_name} ({$mgr['email']}) successfully.";
+        } else {
+            $success    = "The approval record has been saved, however the email to {$mgr['email']} could not be delivered.";
+            $email_note = "PHPMailer Setup Required: (1) Run <code>composer require phpmailer/phpmailer</code> in your project root. (2) Confirm your Gmail App Password is correct — not your regular Google password. (3) Enable 2-Step Verification in Gmail, then create an App Password under Security → App Passwords. (4) In XAMPP php.ini, ensure <code>extension=openssl</code> is uncommented, then restart Apache. (5) For persistent SSL errors, uncomment the SMTPOptions line in <code>smtp_send()</code>.";
         }
     }
 }
 
-// Get existing data
+// ── 7d. Admin: save section ──────────────────────────────────────
+if ($is_POST && $is_admin && ($_POST['action'] ?? '') === 'save_section') {
+    $cat_id = intval($_POST['category_id']);
+    $data   = $_POST['data'] ?? [];
+    foreach ($data as $c => $v) { if (trim($v) === '') $data[$c] = '-'; }
+
+    $conn->begin_transaction();
+    try {
+        foreach ($data as $c => $v) {
+            $v   = trim($v);
+            $pm  = db_row("SELECT id FROM parameters WHERE code=?", "s", $c);
+            if ($pm) {
+                if (!hasParameterAccess($pm['id'], $role_id, $is_admin))
+                    throw new Exception("Permission denied for parameter: $c");
+                db_exec("INSERT INTO monthly_data (month_id, parameter_id, value) VALUES(?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)", "iis", $month_id, $pm['id'], $v);
+            }
+        }
+        $conn->commit();
+        $success = "Section data saved successfully.";
+    } catch (Exception $e) {
+        $conn->rollback();
+        $error = "An error occurred while saving: " . $e->getMessage();
+    }
+}
+
+// ── 7e. Admin: final submit ──────────────────────────────────────
+if ($is_POST && $is_admin && ($_POST['action'] ?? '') === 'submit_final') {
+    $all_cats = getCategoriesWithParams($role_id, $is_admin);
+    $all_ok   = true;
+    foreach ($all_cats as $cd) {
+        if (validateSection($month_id, $cd['category']['id']) !== true) { $all_ok = false; break; }
+    }
+    if (!$all_ok) {
+        $error = "The report cannot be submitted until all sections are completely and correctly filled.";
+    } else {
+        db_exec("UPDATE monthly_data md JOIN parameters p ON md.parameter_id=p.id SET md.value='-' WHERE md.month_id=? AND (md.value='' OR md.value IS NULL)", "i", $month_id);
+        if (db_exec("UPDATE months SET status='submitted' WHERE id=?", "i", $month_id)) {
+            $success      = "The monthly report has been successfully submitted and is now locked for editing.";
+            $is_submitted = true;
+            $month['status'] = 'submitted';
+        } else {
+            $error = "A database error occurred during submission. Please try again.";
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 8. PAGE DATA
+// ═══════════════════════════════════════════════════════════════════
 $existing_data = [];
-$data_query = $conn->prepare("
-    SELECT p.code, md.value 
-    FROM monthly_data md
-    JOIN parameters p ON md.parameter_id = p.id
-    WHERE md.month_id = ?
-");
-$data_query->bind_param("i", $month_id);
-$data_query->execute();
-$result = $data_query->get_result();
+foreach (db_rows("SELECT p.code, md.value FROM monthly_data md JOIN parameters p ON md.parameter_id=p.id WHERE md.month_id=?", "i", $month_id) as $r)
+    $existing_data[$r['code']] = $r['value'];
 
-while($row = $result->fetch_assoc()) {
-    $existing_data[$row['code']] = $row['value'];
-}
-
-// Get user's categories with parameters
-$categories_with_params = getUserCategoriesWithParameters($role_id, $is_admin);
-
-// Calculate progress
-$total_categories = count($categories_with_params);
-$saved_categories = 0;
-$completely_filled_categories = 0;
-
-foreach ($categories_with_params as $category_data) {
-    if (isSectionSaved($month_id, $category_data['category']['id'], $role_id, $is_admin)) {
-        $saved_categories++;
-        
-        // Check if category is completely filled (no empty values)
-        $validation = validateSectionForSubmission($month_id, $category_data['category']['id'], $is_admin);
-        if ($validation === true) {
-            $completely_filled_categories++;
-        }
+$cats_params   = getCategoriesWithParams($role_id, $is_admin);
+$total_cats    = count($cats_params);
+$saved_cats    = $complete_cats = 0;
+foreach ($cats_params as $cd) {
+    if (isSaved($month_id, $cd['category']['id'], $role_id, $is_admin)) {
+        $saved_cats++;
+        if (validateSection($month_id, $cd['category']['id']) === true) $complete_cats++;
     }
 }
 
-// Get user full name
-$full_name = trim(($user_info['first_name'] ?? '') . ' ' . ($user_info['last_name'] ?? ''));
-if (empty($full_name)) {
-    $full_name = $user_info['username'];
-}
+$tech_appr   = getApproval($month_id, 'technical_manager');
+$comm_appr   = getApproval($month_id, 'commercial_manager');
+$tech_filled = catsFilled($month_id, TECH_CATS);
+$comm_filled = catsFilled($month_id, COMM_CATS);
+
+$full_name = trim("{$user_info['first_name']} {$user_info['last_name']}") ?: $user_info['username'];
+$pct       = $total_cats > 0 ? round($saved_cats / $total_cats * 100) : 0;
+$cpct      = $total_cats > 0 ? round($complete_cats / $total_cats * 100, 1) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data Entry - <?php echo htmlspecialchars($month['name']); ?> - AquaTrack Pro</title>
-    
-    <!-- External CSS -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-    <style>
-        /* Enhanced CSS for better user experience */
-        .section-validation-warning {
-            background: rgba(255, 193, 7, 0.1);
-            border: 1px solid rgba(255, 193, 7, 0.3);
-            border-radius: var(--radius-sm);
-            padding: var(--spacing-sm) var(--spacing-md);
-            margin: var(--spacing-md) var(--spacing-lg);
-            color: var(--warning-orange);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            font-size: 0.9rem;
-        }
-        
-        .section-validation-warning i {
-            font-size: 1.1rem;
-        }
-        
-        .save-hint, .submit-hint {
-            margin-top: var(--spacing-sm);
-            color: var(--text-tertiary);
-            font-size: 0.85rem;
-            text-align: center;
-        }
-        
-        .save-hint i, .submit-hint i {
-            margin-right: 5px;
-        }
-        
-        .data-quality-note {
-            background: rgba(0, 168, 255, 0.1);
-            border: 1px solid rgba(0, 168, 255, 0.3);
-            border-radius: var(--radius-sm);
-            padding: var(--spacing-sm) var(--spacing-md);
-            margin-top: var(--spacing-md);
-            font-size: 14px;
-            color: var(--accent-cyan);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-        }
-        
-        .data-quality-note i {
-            font-size: 1.2rem;
-        }
-        
-        .field-status-indicator {
-            position: absolute;
-            right: 10px;
-            top: 10px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--text-tertiary);
-            transition: all 0.3s ease;
-        }
-        
-        .field-status-indicator.filled {
-            background: var(--success-green);
-            box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
-        }
-        
-        .field-status-indicator.empty {
-            background: var(--warning-orange);
-        }
-        
-        .field-status-indicator.required-empty {
-            background: var(--danger-red);
-            animation: blink 2s infinite;
-        }
-        
-        .field-status-indicator.saved {
-            background: var(--success-green);
-            box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.3);
-            transform: scale(1.2);
-        }
-        
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .parameter-item {
-            position: relative;
-            transition: all 0.3s ease;
-        }
-        
-        .parameter-item.missing-required {
-            border-color: var(--danger-red) !important;
-            background-color: rgba(255, 77, 77, 0.05);
-        }
-        
-        .parameter-item.empty-field {
-            border-color: var(--warning-orange) !important;
-            background-color: rgba(255, 193, 7, 0.05);
-        }
-        
-        .parameter-item.saved-field {
-            border-color: var(--success-green) !important;
-            background-color: rgba(40, 167, 69, 0.05);
-            border-left: 3px solid var(--success-green);
-        }
-        
-        .validation-hint {
-            font-size: 12px;
-            color: var(--text-tertiary);
-            margin-top: 4px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .validation-hint i {
-            font-size: 11px;
-        }
-        
-        .btn-validate-all {
-            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal));
-            color: var(--primary-dark);
-            border: none;
-            padding: var(--spacing-sm) var(--spacing-xl);
-            border-radius: var(--radius-md);
-            font-weight: 600;
-            font-size: 0.95rem;
-            cursor: pointer;
-            transition: var(--transition);
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            text-decoration: none;
-            min-width: 200px;
-            justify-content: center;
-        }
-        
-        .btn-validate-all:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 30px rgba(0, 247, 255, 0.4);
-        }
-        
-        .validation-panel {
-            background: var(--glass-bg);
-            border-radius: var(--radius-lg);
-            padding: var(--spacing-lg);
-            margin: var(--spacing-lg) 0;
-            border: 1px solid var(--glass-border);
-        }
-        
-        .validation-header {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            margin-bottom: var(--spacing-md);
-            padding-bottom: var(--spacing-sm);
-            border-bottom: 1px solid var(--glass-border);
-        }
-        
-        .validation-header h4 {
-            margin: 0;
-            color: var(--text-primary);
-        }
-        
-        .validation-summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: var(--spacing-md);
-            margin-bottom: var(--spacing-lg);
-        }
-        
-        .validation-item {
-            padding: var(--spacing-md);
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: var(--radius-md);
-            border: 1px solid var(--glass-border);
-            transition: all 0.3s ease;
-        }
-        
-        .validation-item.good {
-            border-left: 4px solid var(--success-green);
-        }
-        
-        .validation-item.warning {
-            border-left: 4px solid var(--warning-orange);
-        }
-        
-        .validation-item.error {
-            border-left: 4px solid var(--danger-red);
-        }
-        
-        .validation-item h5 {
-            margin: 0 0 5px 0;
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-        }
-        
-        .validation-item p {
-            margin: 0;
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--text-primary);
-        }
-        
-        .validation-instructions {
-            background: rgba(0, 168, 255, 0.1);
-            border-left: 4px solid var(--primary-blue);
-            padding: var(--spacing-md);
-            border-radius: var(--radius-sm);
-            margin-top: var(--spacing-lg);
-        }
-        
-        .validation-instructions h5 {
-            margin-top: 0;
-            color: var(--primary-light);
-        }
-        
-        .validation-instructions ul {
-            margin-bottom: 0;
-            padding-left: 20px;
-        }
-        
-        .validation-instructions li {
-            margin-bottom: 5px;
-            color: var(--text-secondary);
-        }
-        
-        .validation-instructions li:last-child {
-            margin-bottom: 0;
-        }
-        
-        .partially-saved {
-            background: linear-gradient(135deg, rgba(255, 193, 7, 0.3), rgba(253, 126, 20, 0.2));
-            color: var(--warning-orange);
-            border: 1px solid rgba(255, 193, 7, 0.4);
-        }
-        
-        /* Toast notifications */
-        .toast-notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            padding: var(--spacing-md) var(--spacing-lg);
-            border-radius: var(--radius-md);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            z-index: 9999;
-            animation: slideInDown 0.3s ease-out;
-            transition: var(--transition);
-            max-width: 400px;
-        }
-        
-        .toast-success {
-            border-left: 4px solid var(--success-green);
-        }
-        
-        .toast-error {
-            border-left: 4px solid var(--danger-red);
-        }
-        
-        .toast-warning {
-            border-left: 4px solid var(--warning-orange);
-        }
-        
-        .toast-icon {
-            font-size: 1.25rem;
-        }
-        
-        .toast-success .toast-icon {
-            color: var(--success-green);
-        }
-        
-        .toast-error .toast-icon {
-            color: var(--danger-red);
-        }
-        
-        .toast-warning .toast-icon {
-            color: var(--warning-orange);
-        }
-        
-        .toast-message {
-            font-weight: 500;
-            flex: 1;
-            color: var(--primary-dark);
-        }
-        
-        .toast-close {
-            background: none;
-            border: none;
-            font-size: 1.25rem;
-            cursor: pointer;
-            color: var(--text-tertiary);
-            margin-left: var(--spacing-sm);
-            line-height: 1;
-        }
-        
-        @keyframes slideInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        /* Save success notification */
-        .save-success-notification {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: var(--success-green);
-            color: var(--primary-dark);
-            padding: var(--spacing-sm) var(--spacing-md);
-            border-radius: var(--radius-sm);
-            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-            z-index: 100;
-            animation: slideInRight 0.3s ease-out;
-            transition: var(--transition);
-            font-weight: 500;
-        }
-        
-        @keyframes slideInRight {
-            from {
-                opacity: 0;
-                transform: translateX(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-        
-        /* Saving animation */
-        @keyframes pulseSuccess {
-            0% {
-                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
-            }
-            70% {
-                box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
-            }
-            100% {
-                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
-            }
-        }
-        
-        .saving-animation {
-            animation: pulseSuccess 1.5s ease;
-        }
-        
-        /* Save pulse animation */
-        @keyframes pulseSave {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-        
-        .save-pulse {
-            animation: pulseSave 0.5s ease;
-        }
-        
-        /* Completely filled section */
-        .completely-filled {
-            border-left: 4px solid var(--primary-blue) !important;
-        }
-        
-        .section-card.completely-filled {
-            border-left: 4px solid var(--primary-blue);
-        }
-        
-        .section-card.saved {
-            border-left: 4px solid var(--success-green);
-            background: rgba(40, 167, 69, 0.02);
-        }
-        
-        /* Tooltip for saved timestamp */
-        .status-badge[title] {
-            position: relative;
-            cursor: help;
-        }
-        
-        .status-badge[title]:hover::after {
-            content: attr(title);
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.9);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            white-space: nowrap;
-            z-index: 1000;
-            pointer-events: none;
-            font-family: 'Inter', sans-serif;
-            font-weight: 400;
-        }
-        
-        /* Auto-save indicator */
-        .auto-save-indicator {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: var(--success-green);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            z-index: 1000;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.3s ease;
-        }
-        
-        .auto-save-indicator.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
-        
-        /* Progress animation */
-        .progress-fill {
-            transition: width 0.5s ease;
-        }
-        
-        /* Saved data indicator */
-        .saved-data-indicator {
-            position: absolute;
-            top: 5px;
-            right: 30px;
-            font-size: 10px;
-            color: var(--success-green);
-            background: rgba(40, 167, 69, 0.1);
-            padding: 2px 6px;
-            border-radius: 10px;
-            display: none;
-        }
-        
-        .parameter-item.saved-field .saved-data-indicator {
-            display: block;
-        }
-        
-        /* Enhanced section actions */
-        .section-actions {
-            position: relative;
-        }
-        
-        .last-saved-time {
-            font-size: 11px;
-            color: var(--text-tertiary);
-            text-align: center;
-            margin-top: 5px;
-            font-style: italic;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Entry — <?php echo he($month['name']); ?> — AquaTrack Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+<style>
+/* ── Layout ── */
+.de-container{max-width:1380px;margin:0 auto;position:relative;z-index:2;}
+
+/* ── Cards ── */
+.glass-card{background:var(--glass-bg);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);margin-bottom:var(--spacing-lg);}
+
+/* ── User info ── */
+.user-card{padding:var(--spacing-lg);}
+.user-row{display:flex;align-items:center;gap:var(--spacing-lg);flex-wrap:wrap;}
+.avatar{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--primary-blue),var(--accent-cyan));display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:700;color:#fff;flex-shrink:0;}
+.user-meta{flex:1;}
+.user-meta h5{margin:0 0 4px;font-size:1.15rem;}
+.user-stats{min-width:210px;}
+
+/* ── Month header ── */
+.month-header{background:linear-gradient(135deg,rgba(0,102,204,.18),rgba(0,168,255,.08));border-left:5px solid var(--accent-cyan);padding:var(--spacing-xl);margin-bottom:var(--spacing-xl);}
+.month-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--spacing-md);margin-bottom:var(--spacing-md);}
+.month-top h2{font-size:1.75rem;font-weight:800;margin:0 0 6px;background:linear-gradient(135deg,var(--text-primary),var(--accent-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.month-period{color:var(--text-secondary);font-size:.95rem;}
+.read-only-banner{background:rgba(23,162,184,.15);border:1px solid rgba(23,162,184,.35);padding:var(--spacing-md);border-radius:var(--radius-md);margin-top:var(--spacing-md);display:flex;align-items:center;gap:10px;}
+.perm-note{background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.3);border-radius:var(--radius-md);padding:var(--spacing-md);margin-top:var(--spacing-md);color:#ffc107;font-size:.9rem;}
+.quality-note{background:rgba(0,168,255,.08);border:1px solid rgba(0,168,255,.25);border-radius:var(--radius-sm);padding:10px var(--spacing-md);margin-top:var(--spacing-md);font-size:13px;color:var(--accent-cyan);display:flex;align-items:center;gap:8px;}
+
+/* ── Approval panels ── */
+.apr-panel{border-left:4px solid;padding:var(--spacing-lg);}
+.apr-panel.tech{border-left-color:var(--primary-blue);}
+.apr-panel.comm{border-left-color:var(--success-green);}
+.apr-hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:var(--spacing-md);}
+.apr-title-row{display:flex;align-items:center;gap:14px;}
+.apr-icon{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;}
+.tech .apr-icon{background:rgba(0,168,255,.1);color:var(--primary-blue);}
+.comm .apr-icon{background:rgba(40,167,69,.1);color:var(--success-green);}
+.apr-icon-text h4{margin:0;font-size:1rem;}
+.apr-icon-text p{margin:3px 0 0;color:var(--text-secondary);font-size:.83rem;}
+.aprbadge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:600;background:rgba(255,255,255,.07);}
+.apr-body{background:rgba(255,255,255,.04);border-radius:var(--radius-md);padding:var(--spacing-md);margin-bottom:var(--spacing-md);font-size:.9rem;line-height:1.65;}
+.apr-body p{margin:0 0 4px;}
+.readiness{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;font-size:.82rem;margin-top:6px;}
+.readiness.ok{background:rgba(40,167,69,.1);color:var(--success-green);}
+.readiness.no{background:rgba(255,193,7,.1);color:var(--warning-orange);}
+.apr-action{padding:0 0 2px;}
+.btn-notify{padding:10px 20px;border:none;border-radius:var(--radius-md);font-weight:600;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:8px;font-size:.9rem;}
+.tech .btn-notify{background:linear-gradient(135deg,var(--primary-blue),var(--accent-cyan));color:#fff;}
+.comm .btn-notify{background:linear-gradient(135deg,#1b5e20,var(--success-green));color:#fff;}
+.btn-notify:disabled{opacity:.38;cursor:not-allowed;transform:none!important;box-shadow:none!important;}
+.btn-notify:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 5px 16px rgba(0,168,255,.35);}
+
+/* ── Email note ── */
+.email-note{background:rgba(255,193,7,.07);border:1px solid rgba(255,193,7,.32);border-radius:var(--radius-md);padding:var(--spacing-md);margin-bottom:var(--spacing-md);color:var(--warning-orange);font-size:.85rem;line-height:1.75;}
+.email-note code{background:rgba(0,0,0,.28);padding:1px 5px;border-radius:4px;font-size:.82rem;}
+
+/* ── Validation summary ── */
+.val-panel{padding:var(--spacing-lg);}
+.val-hdr{display:flex;align-items:center;gap:10px;margin-bottom:var(--spacing-md);padding-bottom:10px;border-bottom:1px solid var(--glass-border);}
+.val-hdr h4{margin:0;color:var(--text-primary);font-size:1rem;}
+.val-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--spacing-md);margin-bottom:var(--spacing-md);}
+.val-item{padding:var(--spacing-md);background:rgba(255,255,255,.04);border-radius:var(--radius-md);border:1px solid var(--glass-border);}
+.val-item.good{border-left:4px solid var(--success-green);}
+.val-item.warn{border-left:4px solid var(--warning-orange);}
+.val-item.err{border-left:4px solid var(--danger-red);}
+.val-item h5{margin:0 0 4px;font-size:.82rem;color:var(--text-secondary);}
+.val-item p{margin:0;font-size:1.45rem;font-weight:700;color:var(--text-primary);}
+
+/* ── Section cards ── */
+.section-card{background:var(--glass-bg);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);margin-bottom:var(--spacing-lg);transition:var(--transition);overflow:hidden;}
+.section-card:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(0,0,0,.28);}
+.section-card.saved{border-left:4px solid var(--success-green);}
+.section-card.completely-filled{border-left:4px solid var(--primary-blue);}
+.sec-hdr{background:linear-gradient(135deg,rgba(0,168,255,.18),rgba(0,255,255,.08));padding:var(--spacing-lg);border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+.sec-title{font-size:1.1rem;font-weight:600;margin:0;display:flex;align-items:center;gap:10px;}
+.sec-status{display:flex;align-items:center;gap:10px;}
+.param-count{background:rgba(255,255,255,.1);padding:4px 11px;border-radius:10px;font-size:.76rem;font-weight:600;color:var(--text-secondary);}
+.sec-warn{background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.28);border-radius:var(--radius-sm);padding:9px var(--spacing-md);margin:var(--spacing-md) var(--spacing-lg);color:var(--warning-orange);display:flex;align-items:center;gap:8px;font-size:.88rem;}
+
+/* ── Parameter grid ── */
+.param-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:var(--spacing-md);padding:var(--spacing-lg);}
+.param-item{background:rgba(255,255,255,.04);border-radius:var(--radius-md);padding:var(--spacing-md);border:2px solid rgba(255,255,255,.1);position:relative;transition:var(--transition);}
+.param-item:hover{border-color:rgba(0,168,255,.35);background:rgba(255,255,255,.07);}
+.param-item.required{border-left:4px solid var(--danger-red);}
+.param-item.missing-required{border-color:var(--danger-red)!important;background:rgba(220,53,69,.05);}
+.param-item.empty-field{border-color:var(--warning-orange)!important;background:rgba(255,193,7,.04);}
+.param-label{display:flex;gap:10px;margin-bottom:10px;}
+.param-code{background:linear-gradient(135deg,rgba(0,168,255,.28),rgba(0,255,255,.18));color:var(--accent-cyan);padding:4px 10px;border-radius:var(--radius-sm);font-size:.75rem;font-weight:700;min-width:50px;text-align:center;flex-shrink:0;}
+.param-text{color:var(--text-primary);font-weight:600;font-size:.9rem;}
+.param-unit{color:var(--text-tertiary);font-size:.76rem;margin-top:3px;}
+.val-hint{font-size:11px;color:var(--text-tertiary);margin-top:4px;display:flex;align-items:center;gap:4px;}
+.param-input,.param-ta{width:100%;padding:var(--spacing-sm) var(--spacing-md);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);border-radius:var(--radius-md);color:var(--text-primary);font-size:.9rem;font-family:inherit;transition:var(--transition);box-sizing:border-box;}
+.param-ta{min-height:78px;resize:vertical;}
+.param-input:focus,.param-ta:focus{outline:none;background:rgba(255,255,255,.11);border-color:var(--primary-light);box-shadow:0 0 0 3px rgba(0,168,255,.18);}
+.fld-dot{position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:50%;}
+.fld-dot.filled{background:var(--success-green);}
+.fld-dot.empty{background:var(--warning-orange);}
+.fld-dot.req-empty{background:var(--danger-red);animation:blink 1s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Section actions ── */
+.sec-actions{padding:var(--spacing-lg);background:rgba(0,0,0,.18);border-top:1px solid rgba(255,255,255,.08);text-align:center;}
+.btn-save{background:linear-gradient(135deg,var(--primary-light),var(--accent-teal));color:#fff;border:none;padding:var(--spacing-sm) var(--spacing-xl);border-radius:var(--radius-md);font-weight:600;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:8px;}
+.btn-save:hover{transform:translateY(-2px);box-shadow:0 5px 24px rgba(0,168,255,.45);}
+.save-hint{margin-top:8px;color:var(--text-tertiary);font-size:.82rem;}
+.last-saved-t{font-size:11px;color:var(--text-tertiary);margin-top:4px;font-style:italic;}
+
+/* ── Final submission ── */
+.final-card{background:rgba(40,167,69,.08);border-radius:var(--radius-lg);padding:var(--spacing-xl);margin:var(--spacing-xl) 0;border:2px solid rgba(40,167,69,.25);}
+.final-hdr{text-align:center;margin-bottom:var(--spacing-lg);}
+.final-hdr h3{color:var(--text-primary);font-size:1.4rem;font-weight:700;margin-bottom:6px;}
+.prog-wrap{background:rgba(255,255,255,.04);border-radius:var(--radius-md);padding:var(--spacing-md);margin-bottom:var(--spacing-lg);}
+.prog-bar{height:38px;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden;margin-bottom:8px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--success-green),#20c997);border-radius:20px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.85rem;transition:width 1s ease;}
+.prog-stats{display:flex;justify-content:space-between;color:var(--text-tertiary);font-size:.82rem;}
+.btn-final{background:linear-gradient(135deg,var(--success-green),#2ecc71);color:#fff;border:none;padding:var(--spacing-md) var(--spacing-xl);border-radius:var(--radius-md);font-size:.98rem;font-weight:700;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:8px;width:100%;justify-content:center;}
+.btn-final:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 7px 28px rgba(40,167,69,.5);}
+.btn-final:disabled{background:rgba(108,117,125,.28);color:rgba(255,255,255,.38);cursor:not-allowed;}
+
+/* ── Action row ── */
+.action-row{display:flex;gap:var(--spacing-md);justify-content:center;margin:var(--spacing-xl) 0;flex-wrap:wrap;}
+.btn-back,.btn-rpt,.btn-val{padding:var(--spacing-sm) var(--spacing-xl);border-radius:var(--radius-md);font-weight:600;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:8px;text-decoration:none;min-width:170px;justify-content:center;border:none;}
+.btn-back{background:rgba(255,255,255,.08);color:var(--text-primary);border:1px solid rgba(255,255,255,.16);}
+.btn-back:hover{background:rgba(255,255,255,.14);}
+.btn-rpt{background:linear-gradient(135deg,var(--primary-light),var(--accent-teal));color:#fff;}
+.btn-rpt:hover{transform:translateY(-2px);box-shadow:0 5px 22px rgba(0,168,255,.4);}
+.btn-val{background:linear-gradient(135deg,var(--accent-cyan),var(--accent-teal));color:var(--primary-dark);}
+.btn-val:hover{transform:translateY(-2px);box-shadow:0 5px 22px rgba(0,247,255,.35);}
+
+/* ── Manager review table ── */
+.mgr-review{background:var(--glass-bg);backdrop-filter:blur(20px);border-radius:var(--radius-lg);padding:var(--spacing-xl);margin-bottom:var(--spacing-lg);}
+.mgr-review h2{margin-bottom:12px;}
+.dtable{width:100%;border-collapse:collapse;background:rgba(0,20,41,.75);border-radius:var(--radius-sm);overflow:hidden;margin-top:10px;}
+.dtable th,.dtable td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--glass-border);font-size:.88rem;}
+.dtable th{background:linear-gradient(135deg,rgba(0,102,204,.28),rgba(0,168,255,.28));color:var(--text-primary);font-weight:600;}
+.dtable td{color:var(--text-secondary);}
+.apr-btns{display:flex;gap:14px;justify-content:center;margin-top:var(--spacing-lg);flex-wrap:wrap;}
+.btn-apr,.btn-rej{padding:12px 28px;border:none;border-radius:var(--radius-md);font-weight:600;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:8px;font-size:.95rem;}
+.btn-apr{background:linear-gradient(135deg,#1b5e20,var(--success-green));color:#fff;}
+.btn-rej{background:linear-gradient(135deg,#7f0000,var(--danger-red));color:#fff;}
+.btn-apr:hover,.btn-rej:hover{transform:translateY(-2px);}
+.rej-ta{width:100%;padding:12px;border:1px solid var(--glass-border);border-radius:var(--radius-sm);margin-top:14px;background:rgba(255,255,255,.07);color:var(--text-primary);display:none;resize:vertical;box-sizing:border-box;font-size:.9rem;}
+.exp-warn{background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.3);border-radius:var(--radius-sm);padding:10px 16px;margin-top:14px;color:var(--warning-orange);font-size:.87rem;}
+
+/* ── Toast ── */
+.toast{position:fixed;top:22px;right:22px;background:#fff;padding:14px 20px;border-radius:var(--radius-md);box-shadow:0 4px 16px rgba(0,0,0,.14);display:flex;align-items:center;gap:10px;z-index:9999;animation:tin .3s;max-width:400px;}
+@keyframes tin{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
+.toast.ts{border-left:4px solid var(--success-green);}
+.toast.te{border-left:4px solid var(--danger-red);}
+.toast.tw{border-left:4px solid var(--warning-orange);}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .param-grid{grid-template-columns:1fr;padding:var(--spacing-md);}
+  .user-row,.month-top,.sec-hdr,.action-row{flex-direction:column;align-items:flex-start;}
+  .action-row{align-items:stretch;}
+  .btn-back,.btn-rpt,.btn-val{width:100%;}
+}
+</style>
 </head>
 <body class="data-entry-page">
-    <!-- Water Background -->
-    <div class="water-bg">
-        <div class="water-wave"></div>
-        <div class="water-wave"></div>
-        <div class="water-wave"></div>
+<div class="water-bg"><div class="water-wave"></div><div class="water-wave"></div><div class="water-wave"></div></div>
+<div class="main-container">
+<?php include 'nav_bar.php'; ?>
+<div class="main-content"><div class="page-content"><div class="content-wrapper">
+<div class="de-container">
+
+<?php /* ── Alerts ── */ ?>
+<?php if ($success): ?>
+<div class="alert alert-success">
+  <div class="alert-icon"><i class="fas fa-check-circle"></i></div>
+  <div class="alert-content"><div class="alert-heading">Success</div><p><?php echo $success; ?></p></div>
+</div>
+<?php endif; ?>
+<?php if ($error): ?>
+<div class="alert alert-danger">
+  <div class="alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
+  <div class="alert-content"><div class="alert-heading">Notice</div><p><?php echo $error; ?></p></div>
+</div>
+<?php endif; ?>
+<?php if ($email_note): ?>
+<div class="email-note">
+  <i class="fas fa-envelope-open-text"></i> <strong>Email Configuration Note:</strong><br><?php echo $email_note; ?>
+</div>
+<?php endif; ?>
+
+<?php /* ════════════════════════════════════════════════════
+         MANAGER TOKEN REVIEW VIEW
+         ════════════════════════════════════════════════════ */ ?>
+<?php if ($appr_token && ($is_tech_mgr || $is_comm_mgr) && !$is_POST): ?>
+<?php
+    $mc    = $appr_role === 'technical_manager' ? TECH_CATS : COMM_CATS;
+    $ph    = implode(',', array_fill(0, count($mc), '?'));
+    $rows  = db_rows("SELECT pc.name AS cn, p.code, p.label, p.unit, md.value FROM parameters p JOIN parameter_categories pc ON p.category_id=pc.id LEFT JOIN monthly_data md ON p.id=md.parameter_id AND md.month_id=? WHERE p.category_id IN($ph) ORDER BY pc.display_order, p.code", "i" . str_repeat('i', count($mc)), ...array_merge([$month_id], $mc));
+    $cd2   = [];
+    foreach ($rows as $r) $cd2[$r['cn']][] = $r;
+    $rt    = $appr_role === 'technical_manager' ? 'Technical Manager' : 'Commercial Manager';
+?>
+<div class="mgr-review">
+  <h2><i class="fas fa-clipboard-list"></i> Monthly Report — Review &amp; Approval</h2>
+  <div style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--primary-blue),var(--accent-cyan));color:#fff;padding:6px 16px;border-radius:20px;margin:10px 0;font-size:.88rem;">
+    <i class="fas fa-calendar-alt"></i> <?php echo he($month['name']); ?> &nbsp;|&nbsp; <?php echo $rt; ?>
+  </div>
+  <div class="exp-warn"><i class="fas fa-clock"></i> <strong>Note:</strong> This review link will expire 7 days from the date it was issued. Please act promptly.</div>
+  <p style="margin-top:18px;color:var(--text-secondary);font-size:.9rem;">Please review the data entries in your assigned sections below. If all figures are correct, click <strong>Approve</strong>. If corrections are needed, click <strong>Request Changes</strong> and provide details.</p>
+  <?php foreach ($cd2 as $cname => $rs): ?>
+  <div style="margin-top:24px;">
+    <h3 style="font-size:1rem;color:var(--text-primary);margin-bottom:8px;"><i class="fas fa-folder"></i> <?php echo he($cname); ?></h3>
+    <table class="dtable">
+      <thead><tr><th>Code</th><th>Parameter</th><th>Unit</th><th>Value</th></tr></thead>
+      <tbody>
+      <?php foreach ($rs as $r): ?>
+      <tr>
+        <td><code><?php echo he($r['code']); ?></code></td>
+        <td><?php echo he($r['label']); ?></td>
+        <td><?php echo he($r['unit'] ?? '—'); ?></td>
+        <td><strong><?php echo he($r['value'] ?? '—'); ?></strong></td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endforeach; ?>
+  <div class="apr-btns">
+    <button class="btn-apr" onclick="doApprove()"><i class="fas fa-check-circle"></i> Approve Report Data</button>
+    <button class="btn-rej" onclick="showReject()"><i class="fas fa-times-circle"></i> Request Corrections</button>
+  </div>
+  <textarea id="rejta" class="rej-ta" rows="4" placeholder="Please describe the corrections required in detail…"></textarea>
+  <div id="rej_submit" style="display:none;text-align:center;margin-top:12px;">
+    <button class="btn-rej" onclick="doReject()"><i class="fas fa-paper-plane"></i> Submit Correction Request</button>
+  </div>
+  <form id="fA" method="POST"><input type="hidden" name="response" value="approve"></form>
+  <form id="fR" method="POST"><input type="hidden" name="response" value="reject"><input type="hidden" name="rejection_reason" id="rh"></form>
+</div>
+<script>
+function doApprove(){if(confirm('Confirm Approval\n\nBy clicking OK you are confirming that all data entries in your assigned sections are accurate and correct.'))document.getElementById('fA').submit();}
+function showReject(){document.getElementById('rejta').style.display='block';document.getElementById('rej_submit').style.display='block';document.getElementById('rejta').focus();}
+function doReject(){var r=document.getElementById('rejta').value.trim();if(!r){alert('Please provide details of the corrections required before submitting.');return;}document.getElementById('rh').value=r;document.getElementById('fR').submit();}
+</script>
+<?php exit; ?>
+<?php endif; ?>
+
+<?php /* ── User info card ── */ ?>
+<div class="glass-card user-card">
+  <div class="user-row">
+    <div class="avatar"><?php echo strtoupper(substr($full_name, 0, 1)); ?></div>
+    <div class="user-meta">
+      <h5><?php echo he($full_name); ?></h5>
+      <span class="badge badge-info"><i class="fas fa-user-tag"></i> <?php echo he($user_info['role_name'] ?? 'User'); ?></span>
+      <span class="text-muted" style="margin-left:10px;font-size:.87rem;">@<?php echo he($user_info['username']); ?></span>
     </div>
-    
-    <!-- Main Container -->
-    <div class="main-container">
-        <?php include 'nav_bar.php'; ?>
-        
-        <div class="main-content">
-            <div class="page-content">
-                <div class="data-entry-container">
-                    <!-- Alerts -->
-                    <div class="alert-container">
-                        <?php if ($success): ?>
-                            <div class="alert alert-success">
-                                <div class="alert-icon"><i class="fas fa-check-circle"></i></div>
-                                <div class="alert-content">
-                                    <div class="alert-heading">Success!</div>
-                                    <p><?php echo $success; ?></p>
-                                </div>
-                            </div>
-                        <?php endif; ?>
+    <div class="user-stats">
+      <div style="font-size:.87rem;color:var(--text-secondary);margin-bottom:6px;"><strong><?php echo $total_cats; ?></strong> sections assigned</div>
+      <div class="progress-label">Progress <span><?php echo $saved_cats; ?> / <?php echo $total_cats; ?></span></div>
+      <div class="progress-indicator"><div class="progress-fill" style="width:<?php echo $pct; ?>%"></div></div>
+    </div>
+  </div>
+</div>
 
-                        <?php if ($error): ?>
-                            <div class="alert alert-danger">
-                                <div class="alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
-                                <div class="alert-content">
-                                    <div class="alert-heading">Validation Error!</div>
-                                    <p><?php echo $error; ?></p>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                    </div>
+<?php /* ── Month header ── */ ?>
+<div class="glass-card month-header">
+  <div class="month-top">
+    <div>
+      <h2><i class="fas fa-edit"></i> Monthly Data Entry</h2>
+      <div class="month-period">
+        <i class="fas fa-calendar-alt"></i> <?php echo he($month['name']); ?>
+        <?php if ($month['start_date']): ?>
+        &nbsp;·&nbsp;<i class="fas fa-clock"></i>
+        <?php echo date('d M Y', strtotime($month['start_date'])); ?> –
+        <?php echo date('d M Y', strtotime($month['end_date'])); ?>
+        <?php endif; ?>
+      </div>
+    </div>
+    <span class="status-badge status-<?php echo $is_submitted ? 'submitted' : ($saved_cats === $total_cats ? 'saved' : 'pending'); ?>">
+      <?php echo strtoupper($month['status']); ?>
+    </span>
+  </div>
+  <?php if ($is_submitted): ?>
+  <div class="read-only-banner"><i class="fas fa-lock fa-lg"></i><div><strong>Read-Only Mode</strong><br><span style="font-size:.88rem;color:var(--text-secondary);">This report has been submitted and is locked for editing.</span></div></div>
+  <?php endif; ?>
+  <?php if (!$is_admin && !$is_tech_mgr && !$is_comm_mgr): ?>
+  <div class="perm-note"><i class="fas fa-info-circle"></i> You can only view and edit parameters that are assigned to your role.</div>
+  <?php endif; ?>
+  <div class="quality-note"><i class="fas fa-clipboard-check"></i> <strong>Data Guidelines:</strong> All required fields must be completed. For optional fields with no applicable data, enter a dash (<strong>-</strong>).</div>
+</div>
 
-                    <!-- User Info Card -->
-                    <div class="user-info-card">
-                        <div class="user-info-header">
-                            <div class="user-avatar">
-                                <?php echo strtoupper(substr($full_name, 0, 1)); ?>
-                            </div>
-                            <div class="user-info-content">
-                                <h5><?php echo htmlspecialchars($full_name); ?></h5>
-                                <div>
-                                    <span class="badge badge-info">
-                                        <i class="fas fa-user-tag"></i> <?php echo htmlspecialchars($user_info['role_name'] ?? 'User'); ?>
-                                    </span>
-                                    <span class="text-muted ml-2">
-                                        <i class="fas fa-user"></i> @<?php echo htmlspecialchars($user_info['username']); ?>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="user-info-stats">
-                                <div class="stat-label mb-1">
-                                    <strong><?php echo count($categories_with_params); ?></strong> Sections Assigned
-                                </div>
-                                <div class="progress-label">
-                                    <span>Progress</span>
-                                    <span><?php echo $saved_categories; ?> / <?php echo $total_categories; ?></span>
-                                </div>
-                                <div class="progress-indicator">
-                                    <div class="progress-fill" style="width: <?php echo $total_categories > 0 ? ($saved_categories / $total_categories * 100) : 0; ?>%"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <?php if (isset($user_info['role_description']) && !empty($user_info['role_description'])): ?>
-                            <div class="permission-note mt-3">
-                                <i class="fas fa-info-circle"></i> <strong>Role Description:</strong> <?php echo htmlspecialchars($user_info['role_description']); ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
+<?php if (empty($cats_params)): ?>
+<div class="glass-card" style="padding:var(--spacing-xl);text-align:center;">
+  <div style="font-size:3.5rem;opacity:.4;margin-bottom:14px;"><i class="fas fa-folder-open"></i></div>
+  <h4>No Parameters Assigned</h4>
+  <p style="color:var(--text-secondary);">Your role does not have any data entry parameters assigned. Please contact your administrator.</p>
+</div>
+<?php else: ?>
 
-                    <!-- Month Header -->
-                    <div class="month-header-card">
-                        <div class="month-header-content">
-                            <div class="month-header-text">
-                                <h2><i class="fas fa-edit"></i> Monthly Data Entry</h2>
-                                <div class="month-period">
-                                    <i class="fas fa-calendar-alt"></i> <?php echo htmlspecialchars($month['name']); ?>
-                                    <?php if ($month['start_date']): ?>
-                                        <span class="ml-3">
-                                            <i class="fas fa-clock"></i> <?php echo date('M d, Y', strtotime($month['start_date'])); ?> - <?php echo date('M d, Y', strtotime($month['end_date'])); ?>
-                                        </span>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            <span class="status-badge status-<?php echo $is_submitted ? 'submitted' : ($saved_categories == $total_categories ? 'saved' : 'pending'); ?>">
-                                <?php echo strtoupper($month['status']); ?>
-                            </span>
-                        </div>
-                        
-                        <?php if ($is_submitted): ?>
-                            <div class="read-only-banner">
-                                <i class="fas fa-lock fa-lg"></i>
-                                <div>
-                                    <h5>Read-Only Mode</h5>
-                                    <p>This month has been submitted and cannot be edited.</p>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                        
-                        <?php if (!$is_admin): ?>
-                            <div class="permission-note">
-                                <i class="fas fa-exclamation-triangle"></i> <strong>Note:</strong> You can only edit parameters assigned to your role. 
-                                Other sections are hidden from view.
-                            </div>
-                        <?php endif; ?>
-                        
-                        <div class="data-quality-note mt-3">
-                            <i class="fas fa-clipboard-check"></i> 
-                            <strong>Data Quality Guidelines:</strong> 
-                            Required fields must be filled. Optional fields should contain data or '-' to indicate "not applicable". 
-                            Empty fields will be automatically marked with '-' when saving.
-                        </div>
-                        
-                        <!-- Auto-save status -->
-                        <div class="auto-save-indicator" id="autoSaveIndicator">
-                            <i class="fas fa-save"></i>
-                            <span>Data saved successfully</span>
-                        </div>
-                    </div>
+<?php /* ════════════════════════════════════════════════════
+         MANAGER SELF-APPROVAL PANEL
+         ════════════════════════════════════════════════════ */ ?>
+<?php if (($is_tech_mgr || $is_comm_mgr) && !$is_submitted):
+    $my_filled = $is_tech_mgr ? $tech_filled : $comm_filled;
+    $my_appr   = $is_tech_mgr ? $tech_appr   : $comm_appr;
+    $mst       = $my_appr['status'] ?? 'pending';
+    $pcls      = $is_tech_mgr ? 'tech' : 'comm';
+    $pico      = $is_tech_mgr ? 'hard-hat' : 'briefcase';
+    $psects    = $is_tech_mgr ? 'Production · Infrastructure · Water Quality · NRW · Operations' : 'Revenue · Customer Care · Accounts · GIS · HR · Related Sections';
+?>
+<div class="glass-card apr-panel <?php echo $pcls; ?>">
+  <div class="apr-hdr">
+    <div class="apr-title-row">
+      <div class="apr-icon"><i class="fas fa-<?php echo $pico; ?>"></i></div>
+      <div class="apr-icon-text"><h4>Your Approval Status</h4><p><?php echo $psects; ?></p></div>
+    </div>
+    <?php echo aprBadge($mst); ?>
+  </div>
+  <div class="apr-body">
+    <?php if ($mst === 'approved'): ?>
+      <p><i class="fas fa-check-double" style="color:var(--success-green);"></i> <strong>You have approved this report.</strong> The administrator has been notified.</p>
+      <p style="color:var(--text-tertiary);font-size:.82rem;">Approved on <?php echo date('d M Y \a\t H:i', strtotime($my_appr['approved_at'])); ?></p>
+    <?php elseif (!$my_filled): ?>
+      <p><i class="fas fa-exclamation-triangle" style="color:var(--warning-orange);"></i> <strong>Your sections are not yet fully completed.</strong> All fields must be filled before you can submit your approval.</p>
+      <span class="readiness no"><i class="fas fa-lock"></i> Approval locked — pending data entry</span>
+    <?php else: ?>
+      <p><i class="fas fa-check-circle" style="color:var(--success-green);"></i> <strong>All your assigned sections are complete.</strong> Please review the data above and submit your approval once you are satisfied with the entries.</p>
+      <span class="readiness ok"><i class="fas fa-unlock-alt"></i> Ready for approval</span>
+    <?php endif; ?>
+  </div>
+  <?php if ($my_filled && $mst !== 'approved'): ?>
+  <div class="apr-action">
+    <form method="POST">
+      <input type="hidden" name="action" value="manager_direct_approve">
+      <button type="submit" class="btn-notify"
+        onclick="return confirm('Submit Approval\n\nBy clicking OK you confirm that all data entries in your assigned sections are accurate and complete. This action will notify the administrator immediately.')">
+        <i class="fas fa-check-circle"></i> Submit My Approval
+      </button>
+    </form>
+  </div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
-                    <?php if (empty($categories_with_params)): ?>
-                        <div class="empty-state">
-                            <div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div>
-                            <h4>No Parameters Assigned to Your Role</h4>
-                            <p>Your role "<?php echo htmlspecialchars($user_info['role_name'] ?? 'Unknown'); ?>" doesn't have access to any data entry parameters.<br>Please contact your system administrator.</p>
-                        </div>
-                    <?php else: ?>
-                        <!-- Validation Summary for Admin -->
-                        <?php if ($is_admin && !$is_submitted): ?>
-                        <div class="validation-panel">
-                            <div class="validation-header">
-                                <i class="fas fa-clipboard-check fa-lg text-primary"></i>
-                                <h4>Data Quality Validation</h4>
-                            </div>
-                            <div class="validation-summary">
-                                <div class="validation-item <?php echo $saved_categories == $total_categories ? 'good' : 'warning'; ?>">
-                                    <h5>Saved Sections</h5>
-                                    <p><?php echo $saved_categories; ?> / <?php echo $total_categories; ?></p>
-                                </div>
-                                <div class="validation-item <?php echo $completely_filled_categories == $total_categories ? 'good' : 'warning'; ?>">
-                                    <h5>Completely Filled Sections</h5>
-                                    <p><?php echo $completely_filled_categories; ?> / <?php echo $total_categories; ?></p>
-                                </div>
-                                <div class="validation-item <?php echo ($total_categories - $completely_filled_categories) == 0 ? 'good' : 'error'; ?>">
-                                    <h5>Sections Needing Attention</h5>
-                                    <p><?php echo $total_categories - $completely_filled_categories; ?></p>
-                                </div>
-                            </div>
-                            
-                            <?php if ($total_categories - $completely_filled_categories > 0): ?>
-                            <div class="validation-instructions">
-                                <h5><i class="fas fa-exclamation-triangle"></i> Action Required</h5>
-                                <p>Before final submission, please ensure:</p>
-                                <ul>
-                                    <li>All required fields are filled</li>
-                                    <li>Optional fields have data or are marked with '-'</li>
-                                    <li>Each section shows "Completely Filled" status</li>
-                                </ul>
-                                <p class="mb-0"><strong>Tip:</strong> Click on any section's "Validate & Save" button to check for empty fields.</p>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                        <?php endif; ?>
+<?php /* ════════════════════════════════════════════════════
+         ADMIN: VALIDATION SUMMARY + NOTIFY PANELS
+         ════════════════════════════════════════════════════ */ ?>
+<?php if ($is_admin && !$is_submitted): ?>
 
-                        <!-- Categories/Sections -->
-                        <?php foreach($categories_with_params as $index => $category_data): 
-                            $category = $category_data['category'];
-                            $parameters = $category_data['parameters'];
-                            $is_saved = isSectionSaved($month_id, $category['id'], $role_id, $is_admin);
-                            $param_count = count($parameters);
-                            
-                            // Check if completely filled
-                            $validation_result = validateSectionForSubmission($month_id, $category['id'], $is_admin);
-                            $is_completely_filled = ($validation_result === true);
-                        ?>
-                        <div class="section-card <?php echo $is_saved ? ($is_completely_filled ? 'completely-filled' : 'saved') : 'unsaved'; ?>" 
-                             data-section-id="<?php echo $category['id']; ?>"
-                             data-section-saved="<?php echo $is_saved ? 'true' : 'false'; ?>"
-                             style="animation-delay: <?php echo ($index * 0.1) + 0.2; ?>s;">
-                            <div class="section-header">
-                                <h3 class="section-title">
-                                    <i class="fas fa-folder"></i> <?php echo htmlspecialchars($category['name']); ?>
-                                    <?php if (!empty($category['description'])): ?>
-                                        <span class="text-muted ml-2">- <?php echo htmlspecialchars($category['description']); ?></span>
-                                    <?php endif; ?>
-                                </h3>
-                                <div class="section-status">
-                                    <span class="parameter-count">
-                                        <i class="fas fa-chart-bar"></i> <?php echo $param_count; ?> parameters
-                                    </span>
-                                    <span class="status-badge status-<?php echo $is_saved ? ($is_completely_filled ? 'saved' : 'partially-saved') : 'pending'; ?>" 
-                                          id="status-badge-<?php echo $category['id']; ?>"
-                                          title="<?php echo $is_saved ? 'Last saved: ' . date('M d, Y H:i') : 'Not saved yet'; ?>">
-                                        <?php if ($is_saved): ?>
-                                            <?php if ($is_completely_filled): ?>
-                                                <i class="fas fa-check-circle"></i> Completely Filled
-                                            <?php else: ?>
-                                                <i class="fas fa-exclamation-circle"></i> Needs Attention
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <i class="fas fa-clock"></i> Pending
-                                        <?php endif; ?>
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <?php if ($is_saved && !$is_completely_filled): ?>
-                            <div class="section-validation-warning">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <span>This section has empty fields. Please fill all fields or mark with '-' before final submission.</span>
-                            </div>
-                            <?php endif; ?>
-                            
-                            <div class="parameter-grid">
-                                <?php foreach($parameters as $param): 
-                                    $is_multiline = in_array($param['id'], [221, 222, 172, 174, 305]);
-                                    $current_value = isset($existing_data[$param['code']]) ? htmlspecialchars($existing_data[$param['code']]) : '';
-                                    $is_empty = empty(trim($current_value));
-                                    $is_saved_field = isset($existing_data[$param['code']]) && trim($existing_data[$param['code']]) !== '';
-                                    $field_class = '';
-                                    
-                                    if ($param['required'] && $is_empty) {
-                                        $field_class = 'missing-required';
-                                    } elseif ($is_empty) {
-                                        $field_class = 'empty-field';
-                                    } elseif ($is_saved_field) {
-                                        $field_class = 'saved-field';
-                                    }
-                                ?>
-                                <div class="parameter-item <?php echo $param['required'] ? 'required' : ''; ?> <?php echo $is_multiline ? 'multiline' : ''; ?> <?php echo $field_class; ?>"
-                                     data-param-id="<?php echo $param['id']; ?>">
-                                    <div class="parameter-label">
-                                        <span class="parameter-code"><?php echo htmlspecialchars($param['code']); ?></span>
-                                        <div>
-                                            <div class="parameter-text">
-                                                <?php echo htmlspecialchars($param['label']); ?>
-                                                <?php if ($param['required']): ?>
-                                                    <span class="text-danger">*</span>
-                                                <?php endif; ?>
-                                            </div>
-                                            <?php if(!empty($param['unit'])): ?>
-                                                <div class="parameter-unit">
-                                                    <i class="fas fa-ruler"></i> Unit: <?php echo htmlspecialchars($param['unit']); ?>
-                                                </div>
-                                            <?php endif; ?>
-                                            <?php if($is_multiline): ?>
-                                                <div class="multiline-hint">
-                                                    <i class="fas fa-keyboard"></i> Press Enter for new line
-                                                </div>
-                                            <?php endif; ?>
-                                            <div class="validation-hint">
-                                                <?php if ($param['required']): ?>
-                                                    <i class="fas fa-asterisk text-danger" style="font-size: 8px;"></i>
-                                                    <span>Required field</span>
-                                                <?php else: ?>
-                                                    <i class="fas fa-info-circle text-info" style="font-size: 8px;"></i>
-                                                    <span>Enter value or '-' if not applicable</span>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="saved-data-indicator">
-                                        <i class="fas fa-check"></i> Saved
-                                    </div>
-                                    
-                                    <?php if($is_multiline): ?>
-                                        <textarea 
-                                            name="data[<?php echo htmlspecialchars($param['code']); ?>]" 
-                                            class="parameter-input parameter-textarea"
-                                            rows="3"
-                                            <?php echo $is_submitted ? 'readonly' : ''; ?>
-                                            <?php echo $param['required'] ? 'required' : ''; ?>
-                                            data-param-code="<?php echo htmlspecialchars($param['code']); ?>"
-                                            data-param-required="<?php echo $param['required'] ? 'true' : 'false'; ?>"
-                                            data-original-value="<?php echo htmlspecialchars($current_value); ?>"
-                                            placeholder="<?php echo $param['required'] ? 'Required - enter value' : 'Enter value or "-" if not applicable'; ?>"><?php echo $current_value; ?></textarea>
-                                    <?php else: ?>
-                                        <input type="text" 
-                                               name="data[<?php echo htmlspecialchars($param['code']); ?>]" 
-                                               value="<?php echo $current_value; ?>"
-                                               class="parameter-input"
-                                               <?php echo $is_submitted ? 'readonly' : ''; ?>
-                                               <?php echo $param['required'] ? 'required' : ''; ?>
-                                               data-param-code="<?php echo htmlspecialchars($param['code']); ?>"
-                                               data-param-required="<?php echo $param['required'] ? 'true' : 'false'; ?>"
-                                               data-original-value="<?php echo htmlspecialchars($current_value); ?>"
-                                               placeholder="<?php echo $param['required'] ? 'Required - enter value' : 'Enter value or "-" if not applicable'; ?>">
-                                    <?php endif; ?>
-                                    
-                                    <div class="field-status-indicator <?php echo $is_empty ? ($param['required'] ? 'required-empty' : 'empty') : ($is_saved_field ? 'saved' : 'filled'); ?>"
-                                         title="<?php echo $is_saved_field ? 'Data saved to database' : ($is_empty ? 'Empty field' : 'Filled'); ?>"></div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                            
-                            <?php if (!$is_submitted && $param_count > 0): ?>
-                            <div class="section-actions">
-                                <form method="POST" class="save-section-form" id="form-<?php echo $category['id']; ?>">
-                                    <input type="hidden" name="month_id" value="<?php echo $month_id; ?>">
-                                    <input type="hidden" name="category_id" value="<?php echo $category['id']; ?>">
-                                    <input type="hidden" name="action" value="save_section">
-                                    
-                                    <button type="submit" class="btn-save-section" id="save-section-<?php echo $category['id']; ?>">
-                                        <i class="fas fa-clipboard-check"></i> Validate & Save Section
-                                    </button>
-                                    <div class="save-hint">
-                                        <small><i class="fas fa-info-circle"></i> Data will be preserved. You can return and edit anytime.</small>
-                                    </div>
-                                    <div class="last-saved-time" id="last-saved-<?php echo $category['id']; ?>">
-                                        <?php if ($is_saved): ?>
-                                            Last saved: <?php echo date('M d, Y H:i'); ?>
-                                        <?php endif; ?>
-                                    </div>
-                                </form>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+<div class="glass-card val-panel">
+  <div class="val-hdr"><i class="fas fa-clipboard-check fa-lg" style="color:var(--accent-cyan);"></i><h4>Data Quality Overview</h4></div>
+  <div class="val-grid">
+    <div class="val-item <?php echo $saved_cats   === $total_cats ? 'good' : 'warn'; ?>"><h5>Saved Sections</h5><p><?php echo $saved_cats; ?> / <?php echo $total_cats; ?></p></div>
+    <div class="val-item <?php echo $complete_cats === $total_cats ? 'good' : 'warn'; ?>"><h5>Fully Completed</h5><p><?php echo $complete_cats; ?> / <?php echo $total_cats; ?></p></div>
+    <div class="val-item <?php echo $total_cats - $complete_cats === 0 ? 'good' : 'err'; ?>"><h5>Need Attention</h5><p><?php echo $total_cats - $complete_cats; ?></p></div>
+  </div>
+  <?php if ($total_cats - $complete_cats > 0): ?>
+  <div style="background:rgba(0,168,255,.08);border-left:4px solid var(--primary-blue);padding:var(--spacing-md);border-radius:var(--radius-sm);font-size:.88rem;color:var(--text-secondary);">
+    <strong style="color:var(--primary-light);"><i class="fas fa-info-circle"></i> Action Required —</strong>
+    Please ensure all required fields are filled, optional fields contain data or a dash (-), and each section displays a "Complete" status before sending for manager review.
+  </div>
+  <?php endif; ?>
+</div>
 
-                    <!-- Final Submission for Admin -->
-                    <?php if (!$is_submitted && $is_admin): ?>
-                    <div class="final-submission-card">
-                        <div class="final-submission-header">
-                            <h3><i class="fas fa-check-circle"></i> Final Report Submission</h3>
-                            <p>Complete all sections with proper validation to submit the final report</p>
-                        </div>
-                        
-                        <div class="completion-progress">
-                            <div class="progress-bar-container">
-                                <div class="progress-bar-fill" style="width: <?php echo $total_categories > 0 ? ($completely_filled_categories / $total_categories * 100) : 0; ?>%">
-                                    <?php echo $completely_filled_categories; ?> of <?php echo $total_categories; ?> Sections Completely Filled
-                                </div>
-                            </div>
-                            <div class="progress-stats">
-                                <span>Data Quality</span>
-                                <span><?php echo $total_categories > 0 ? round(($completely_filled_categories / $total_categories * 100), 1) : 0; ?>% Complete</span>
-                            </div>
-                        </div>
-                        
-                        <?php if ($completely_filled_categories == $total_categories && $saved_categories == $total_categories): ?>
-                            <form method="POST" id="final-submission-form">
-                                <input type="hidden" name="action" value="submit_final">
-                                <button type="submit" class="btn-submit-final" onclick="return confirmFinalSubmission();">
-                                    <i class="fas fa-rocket"></i> Submit Final Report
-                                </button>
-                                <div class="submit-hint">
-                                    <small><i class="fas fa-shield-alt"></i> All sections validated. Data will be locked after submission.</small>
-                                </div>
-                            </form>
-                        <?php else: ?>
-                            <button class="btn-submit-final" disabled>
-                                <i class="fas fa-lock"></i> 
-                                <?php if ($saved_categories < $total_categories): ?>
-                                    Save All Sections First
-                                <?php else: ?>
-                                    Complete All Validations First
-                                <?php endif; ?>
-                            </button>
-                            <div class="submit-hint">
-                                <small><i class="fas fa-exclamation-circle"></i> 
-                                <?php if ($saved_categories < $total_categories): ?>
-                                    <?php echo $total_categories - $saved_categories; ?> sections still need to be saved
-                                <?php else: ?>
-                                    <?php echo $total_categories - $completely_filled_categories; ?> sections have empty fields that need attention
-                                <?php endif; ?>
-                                </small>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                    <?php endif; ?>
+<?php
+// Technical Manager panel
+$ts = $tech_appr['status'] ?? 'pending';
+foreach ([
+    ['tech', 'hard-hat',   'Technical Manager Review', 'Production · Infrastructure · Water Quality · NRW · Operations', $ts, $tech_filled, $tech_appr, 'technical_manager'],
+    ['comm', 'briefcase',  'Commercial Manager Review', 'Revenue · Customer Care · Accounts · GIS · HR · Related Sections', $comm_appr['status'] ?? 'pending', $comm_filled, $comm_appr, 'commercial_manager'],
+] as [$cls, $ico, $ptitle, $psects, $pst, $pfilled, $pappr, $prole]):
+?>
+<div class="glass-card apr-panel <?php echo $cls; ?>">
+  <div class="apr-hdr">
+    <div class="apr-title-row">
+      <div class="apr-icon"><i class="fas fa-<?php echo $ico; ?>"></i></div>
+      <div class="apr-icon-text"><h4><?php echo $ptitle; ?></h4><p><?php echo $psects; ?></p></div>
+    </div>
+    <?php echo aprBadge($pst); ?>
+  </div>
+  <div class="apr-body">
+    <?php if (!$pfilled && $pst === 'pending'): ?>
+      <p><i class="fas fa-exclamation-triangle" style="color:var(--warning-orange);"></i> The <?php echo strtolower($ptitle); ?>'s sections are <strong>not yet fully completed</strong>. All data must be entered before sending a review request.</p>
+      <span class="readiness no"><i class="fas fa-times-circle"></i> Awaiting data entry</span>
+    <?php elseif ($pst === 'pending'): ?>
+      <p><i class="fas fa-check-circle" style="color:var(--success-green);"></i> All sections for this manager are complete. You may now send the review request.</p>
+      <span class="readiness ok"><i class="fas fa-check-circle"></i> Ready to send</span>
+    <?php elseif ($pst === 'notified'): ?>
+      <p><i class="fas fa-paper-plane" style="color:var(--warning-orange);"></i> A review request has been sent. Awaiting the manager's response.</p>
+      <p style="color:var(--text-tertiary);font-size:.82rem;">Sent on <?php echo date('d M Y \a\t H:i', strtotime($pappr['notified_at'])); ?></p>
+    <?php elseif ($pst === 'approved'): ?>
+      <p><i class="fas fa-check-double" style="color:var(--success-green);"></i> The data has been <strong>approved</strong> by the <?php echo strtolower($ptitle); ?>.</p>
+      <p style="color:var(--text-tertiary);font-size:.82rem;">Approved on <?php echo date('d M Y \a\t H:i', strtotime($pappr['approved_at'])); ?></p>
+    <?php elseif ($pst === 'rejected'): ?>
+      <p><i class="fas fa-times-circle" style="color:var(--danger-red);"></i> The manager has <strong>requested corrections</strong>. Please update the data and resend the review request.</p>
+      <?php if (!empty($pappr['rejection_reason'])): ?>
+      <div style="background:rgba(220,53,69,.08);border-left:3px solid var(--danger-red);padding:10px 14px;border-radius:0 6px 6px 0;margin-top:8px;font-size:.85rem;">
+        <strong>Manager's Feedback:</strong> <?php echo he($pappr['rejection_reason']); ?>
+      </div>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
+  <div class="apr-action">
+    <form method="POST">
+      <input type="hidden" name="action" value="notify_manager">
+      <input type="hidden" name="manager_role" value="<?php echo $prole; ?>">
+      <button type="submit" class="btn-notify" <?php echo !$pfilled ? 'disabled title="All sections must be completed before sending."' : ''; ?>>
+        <i class="fas fa-paper-plane"></i>
+        <?php echo $pst === 'pending' ? 'Send Review Request' : ($pst === 'rejected' ? 'Resend Review Request' : 'Request Re-Review'); ?>
+      </button>
+    </form>
+  </div>
+</div>
+<?php endforeach; ?>
 
-                    <!-- Action Buttons -->
-                    <div class="action-buttons">
-                        <a href="months.php" class="btn-back">
-                            <i class="fas fa-arrow-left"></i> Back to Months
-                        </a>
-                        <a href="report.php?month_id=<?php echo $month_id; ?>" class="btn-view-report">
-                            <i class="fas fa-chart-bar"></i> View Report
-                        </a>
-                        <?php if ($is_admin && !$is_submitted): ?>
-                        <button class="btn-validate-all" onclick="validateAllSections()">
-                            <i class="fas fa-clipboard-check"></i> Validate All Sections
-                        </button>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
+<?php endif; /* end admin panels */ ?>
+
+<?php /* ════════════════════════════════════════════════════
+         DATA SECTIONS
+         ════════════════════════════════════════════════════ */ ?>
+<?php foreach ($cats_params as $cd):
+    $cat    = $cd['category'];
+    $params = $cd['parameters'];
+    $sv     = isSaved($month_id, (int)$cat['id'], $role_id, $is_admin);
+    $val    = validateSection($month_id, (int)$cat['id']);
+    $fld    = $val === true;
+    $in_t   = in_array($cat['id'], TECH_CATS);
+    $in_c   = in_array($cat['id'], COMM_CATS);
+?>
+<div class="section-card <?php echo $sv ? ($fld ? 'completely-filled' : 'saved') : 'unsaved'; ?>"
+     data-section-id="<?php echo (int)$cat['id']; ?>">
+  <div class="sec-hdr">
+    <h3 class="sec-title">
+      <i class="fas fa-folder"></i> <?php echo he($cat['name']); ?>
+      <?php if ($in_t): ?>
+      <span style="font-size:.7rem;color:#1976d2;background:rgba(25,118,210,.12);padding:3px 9px;border-radius:10px;">
+        <i class="fas fa-hard-hat"></i> Technical
+      </span>
+      <?php elseif ($in_c): ?>
+      <span style="font-size:.7rem;color:#2e7d32;background:rgba(46,125,50,.12);padding:3px 9px;border-radius:10px;">
+        <i class="fas fa-briefcase"></i> Commercial
+      </span>
+      <?php endif; ?>
+    </h3>
+    <div class="sec-status">
+      <span class="param-count"><i class="fas fa-list"></i> <?php echo count($params); ?> fields</span>
+      <span class="status-badge status-<?php echo $sv ? ($fld ? 'saved' : 'pending') : 'pending'; ?>" id="sb-<?php echo (int)$cat['id']; ?>">
+        <?php echo $sv ? ($fld ? '<i class="fas fa-check-circle"></i> Complete' : '<i class="fas fa-exclamation-circle"></i> Needs Attention') : '<i class="fas fa-clock"></i> Pending'; ?>
+      </span>
+    </div>
+  </div>
+
+  <?php if ($sv && !$fld): ?>
+  <div class="sec-warn"><i class="fas fa-exclamation-triangle"></i> This section contains empty fields. Please fill all fields or enter a dash (-) where data is not applicable.</div>
+  <?php endif; ?>
+
+  <div class="param-grid">
+  <?php foreach ($params as $param):
+      $is_ml = in_array($param['id'], ML_PARAMS);
+      $cv    = isset($existing_data[$param['code']]) ? he($existing_data[$param['code']]) : '';
+      $ie    = trim($cv) === '';
+      $fc    = $param['required'] && $ie ? 'missing-required' : ($ie ? 'empty-field' : '');
+  ?>
+  <div class="param-item <?php echo $param['required'] ? 'required' : ''; ?> <?php echo $fc; ?>"
+       data-param-id="<?php echo (int)$param['id']; ?>">
+    <div class="param-label">
+      <span class="param-code"><?php echo he($param['code']); ?></span>
+      <div>
+        <div class="param-text"><?php echo he($param['label']); ?><?php if ($param['required']): ?> <span class="text-danger">*</span><?php endif; ?></div>
+        <?php if (!empty($param['unit'])): ?><div class="param-unit"><i class="fas fa-ruler"></i> <?php echo he($param['unit']); ?></div><?php endif; ?>
+        <div class="val-hint">
+          <?php if ($param['required']): ?>
+          <i class="fas fa-asterisk text-danger" style="font-size:7px;"></i><span>Required</span>
+          <?php else: ?>
+          <i class="fas fa-info-circle" style="font-size:7px;color:var(--accent-cyan);"></i><span>Optional — use <strong>-</strong> if not applicable</span>
+          <?php endif; ?>
         </div>
+      </div>
     </div>
+    <?php if ($is_ml): ?>
+    <textarea name="data[<?php echo he($param['code']); ?>]" class="param-input param-ta" rows="3"
+      <?php echo $is_submitted ? 'readonly' : ''; ?>
+      data-code="<?php echo he($param['code']); ?>"
+      data-orig="<?php echo $cv; ?>"
+      placeholder="<?php echo $param['required'] ? 'Required field' : 'Enter value or \"-\" if not applicable'; ?>"><?php echo $cv; ?></textarea>
+    <?php else: ?>
+    <input type="text" name="data[<?php echo he($param['code']); ?>]" value="<?php echo $cv; ?>"
+      class="param-input" <?php echo $is_submitted ? 'readonly' : ''; ?>
+      data-code="<?php echo he($param['code']); ?>"
+      data-orig="<?php echo $cv; ?>"
+      placeholder="<?php echo $param['required'] ? 'Required field' : 'Enter value or \"-\" if not applicable'; ?>">
+    <?php endif; ?>
+    <div class="fld-dot <?php echo $ie ? ($param['required'] ? 'req-empty' : 'empty') : 'filled'; ?>"></div>
+  </div>
+  <?php endforeach; ?>
+  </div>
 
-    <script>
-        // Toast notification system
-        function showToast(message, type = 'success', duration = 5000) {
-            const toast = document.createElement('div');
-            toast.className = `toast-notification toast-${type}`;
-            toast.innerHTML = `
-                <div class="toast-icon">
-                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'exclamation-triangle'}"></i>
-                </div>
-                <div class="toast-message">${message}</div>
-                <button class="toast-close">&times;</button>
-            `;
-            
-            document.body.appendChild(toast);
-            
-            // Remove existing toasts if too many
-            const existingToasts = document.querySelectorAll('.toast-notification');
-            if (existingToasts.length > 3) {
-                existingToasts[0].remove();
-            }
-            
-            // Auto remove after duration
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateY(-20px)';
-                setTimeout(() => toast.remove(), 300);
-            }, duration);
-            
-            // Close button
-            toast.querySelector('.toast-close').addEventListener('click', () => {
-                toast.remove();
-            });
-            
-            return toast;
-        }
-        
-        // Show auto-save indicator
-        function showAutoSaveIndicator() {
-            const indicator = document.getElementById('autoSaveIndicator');
-            indicator.classList.add('show');
-            
-            setTimeout(() => {
-                indicator.classList.remove('show');
-            }, 3000);
-        }
-        
-        // Update progress indicator WITHOUT reloading page
-        function updateProgressIndicator() {
-            const sections = document.querySelectorAll('.section-card');
-            const totalSections = sections.length;
-            let savedSections = 0;
-            let filledSections = 0;
-            
-            sections.forEach(section => {
-                if (section.classList.contains('saved') || section.classList.contains('completely-filled')) {
-                    savedSections++;
-                }
-                if (section.classList.contains('completely-filled')) {
-                    filledSections++;
-                }
-            });
-            
-            // Update user info card
-            const progressFill = document.querySelector('.progress-fill');
-            const progressText = document.querySelector('.progress-label span:last-child');
-            
-            if (progressFill && progressText) {
-                const percentage = totalSections > 0 ? (savedSections / totalSections * 100) : 0;
-                progressFill.style.width = percentage + '%';
-                progressText.textContent = `${savedSections} / ${totalSections}`;
-            }
-            
-            // Update final submission progress if exists
-            const finalProgressFill = document.querySelector('.progress-bar-fill');
-            const finalProgressText = document.querySelector('.progress-stats span:last-child');
-            
-            if (finalProgressFill && finalProgressText) {
-                const filledPercentage = totalSections > 0 ? (filledSections / totalSections * 100) : 0;
-                finalProgressFill.style.width = filledPercentage + '%';
-                finalProgressFill.textContent = `${filledSections} of ${totalSections} Sections Completely Filled`;
-                finalProgressText.textContent = `${filledPercentage.toFixed(1)}% Complete`;
-            }
-            
-            // Update validation panel if exists
-            const validationItems = document.querySelectorAll('.validation-item');
-            if (validationItems.length >= 3) {
-                validationItems[0].querySelector('p').textContent = `${savedSections} / ${totalSections}`;
-                validationItems[1].querySelector('p').textContent = `${filledSections} / ${totalSections}`;
-                validationItems[2].querySelector('p').textContent = `${totalSections - filledSections}`;
-                
-                // Update classes based on status
-                validationItems[0].className = `validation-item ${savedSections === totalSections ? 'good' : 'warning'}`;
-                validationItems[1].className = `validation-item ${filledSections === totalSections ? 'good' : 'warning'}`;
-                validationItems[2].className = `validation-item ${filledSections === totalSections ? 'good' : 'error'}`;
-            }
-            
-            return { saved: savedSections, filled: filledSections, total: totalSections };
-        }
-        
-        // Validate a single section before saving
-        function validateSection(sectionId) {
-            const section = document.querySelector(`[data-section-id="${sectionId}"]`);
-            const inputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
-            
-            let hasRequiredEmpty = false;
-            let hasEmptyFields = false;
-            const emptyFields = [];
-            const requiredEmptyFields = [];
-            
-            inputs.forEach(input => {
-                const value = input.value.trim();
-                const isRequired = input.hasAttribute('required');
-                const paramCode = input.dataset.paramCode;
-                
-                if (isRequired && !value) {
-                    hasRequiredEmpty = true;
-                    requiredEmptyFields.push(paramCode);
-                    input.closest('.parameter-item').classList.add('missing-required');
-                } else if (!value) {
-                    hasEmptyFields = true;
-                    emptyFields.push(paramCode);
-                    input.closest('.parameter-item').classList.add('empty-field');
-                } else {
-                    input.closest('.parameter-item').classList.remove('missing-required', 'empty-field');
-                }
-                
-                // Update field status indicator
-                const indicator = input.closest('.parameter-item').querySelector('.field-status-indicator');
-                if (indicator) {
-                    indicator.className = 'field-status-indicator ';
-                    if (!value) {
-                        indicator.classList.add(isRequired ? 'required-empty' : 'empty');
-                    } else {
-                        indicator.classList.add('filled');
-                    }
-                }
-            });
-            
-            return {
-                isValid: !hasRequiredEmpty,
-                hasRequiredEmpty,
-                hasEmptyFields,
-                requiredEmptyFields,
-                emptyFields
-            };
-        }
-        
-        // Handle section form submissions WITHOUT page reload
-        document.addEventListener('DOMContentLoaded', function() {
-            const sectionForms = document.querySelectorAll('.save-section-form');
-            
-            sectionForms.forEach(form => {
-                form.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    
-                    const formData = new FormData(this);
-                    const dataObj = Object.fromEntries(formData.entries());
-                    const categoryId = dataObj.category_id;
-                    const section = document.getElementById('form-' + categoryId).closest('.section-card');
-                    const statusBadge = section.querySelector('.status-badge');
-                    const submitBtn = this.querySelector('.btn-save-section');
-                    const sectionName = section.querySelector('.section-title').textContent.trim().split('\n')[0];
-                    const lastSavedTime = document.getElementById('last-saved-' + categoryId);
-                    
-                    // Validate section
-                    const validation = validateSection(categoryId);
-                    
-                    if (!validation.isValid) {
-                        showToast(`Please fill all required fields in "${sectionName}"`, 'error', 6000);
-                        
-                        // Scroll to first empty required field
-                        const firstEmpty = section.querySelector('.missing-required');
-                        if (firstEmpty) {
-                            firstEmpty.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            const input = firstEmpty.querySelector('input, textarea');
-                            if (input) input.focus();
-                        }
-                        return;
-                    }
-                    
-                    // Show warning for empty optional fields
-                    if (validation.hasEmptyFields) {
-                        showToast(`Empty optional fields in "${sectionName}" will be marked with '-'`, 'warning', 4000);
-                    }
-                    
-                    // Add saving state
-                    const originalBtnText = submitBtn.innerHTML;
-                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-                    submitBtn.disabled = true;
-                    
-                    // Auto-fill empty fields with dash in the UI
-                    const formDataToSend = new FormData(this);
-                    const dataInputs = section.querySelectorAll('input[name^="data["], textarea[name^="data["]');
-                    
-                    dataInputs.forEach(input => {
-                        if (!input.value.trim()) {
-                            formDataToSend.set(input.name, '-');
-                            // Update the input value in the UI
-                            input.value = '-';
-                        }
-                    });
-                    
-                    // Save to database
-                    fetch('', {
-                        method: 'POST',
-                        body: formDataToSend
-                    })
-                    .then(response => response.text())
-                    .then((html) => {
-                        // Check if there's a success message in the response
-                        if (html.includes('Section data saved successfully') || html.includes('Success!')) {
-                            // Update section status
-                            const allFieldsFilled = !validation.hasEmptyFields && !validation.hasRequiredEmpty;
-                            section.classList.remove('unsaved', 'saved');
-                            section.classList.add(allFieldsFilled ? 'completely-filled' : 'saved');
-                            
-                            // Update status badge
-                            statusBadge.className = 'status-badge status-saved save-pulse';
-                            statusBadge.innerHTML = allFieldsFilled ? 
-                                '<i class="fas fa-check-circle"></i> Completely Filled' : 
-                                '<i class="fas fa-check-circle"></i> Saved';
-                            
-                            // Update timestamp in status badge
-                            const now = new Date();
-                            const formattedTime = now.toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            });
-                            statusBadge.title = `Last saved: ${formattedTime}`;
-                            
-                            // Update last saved time display
-                            if (lastSavedTime) {
-                                lastSavedTime.textContent = `Last saved: ${formattedTime}`;
-                                lastSavedTime.style.display = 'block';
-                            }
-                            
-                            // Mark all fields as saved
-                            dataInputs.forEach(input => {
-                                const paramItem = input.closest('.parameter-item');
-                                paramItem.classList.add('saved-field');
-                                
-                                // Update field status indicator
-                                const indicator = paramItem.querySelector('.field-status-indicator');
-                                if (indicator) {
-                                    indicator.className = 'field-status-indicator saved';
-                                    indicator.title = 'Data saved to database';
-                                }
-                                
-                                // Store current value as original value
-                                input.dataset.originalValue = input.value;
-                            });
-                            
-                            // Update progress indicators
-                            updateProgressIndicator();
-                            
-                            // Show success notifications
-                            showToast(`"${sectionName}" saved successfully! Data is preserved.`, 'success');
-                            showAutoSaveIndicator();
-                            
-                            // Store saved state in localStorage
-                            localStorage.setItem(`section_${categoryId}_saved`, 'true');
-                            localStorage.setItem(`section_${categoryId}_timestamp`, now.toISOString());
-                            localStorage.setItem(`section_${categoryId}_name`, sectionName);
-                            
-                        } else {
-                            // Check for error message
-                            const tempDiv = document.createElement('div');
-                            tempDiv.innerHTML = html;
-                            const errorDiv = tempDiv.querySelector('.alert-danger');
-                            if (errorDiv) {
-                                const errorText = errorDiv.textContent.trim();
-                                showToast(`Error saving "${sectionName}": ${errorText}`, 'error');
-                            } else {
-                                showToast(`Unknown error occurred while saving "${sectionName}"`, 'error');
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Save error:', error);
-                        showToast(`Error saving "${sectionName}". Please try again.`, 'error');
-                    })
-                    .finally(() => {
-                        // Re-enable button
-                        submitBtn.innerHTML = originalBtnText;
-                        submitBtn.disabled = false;
-                    });
-                });
-            });
-            
-            // Real-time field validation
-            const inputs = document.querySelectorAll('input[name^="data["], textarea[name^="data["]');
-            inputs.forEach(input => {
-                // Check if field has saved data on page load
-                const paramItem = input.closest('.parameter-item');
-                if (paramItem && input.value.trim() && input.value !== '-') {
-                    const indicator = paramItem.querySelector('.field-status-indicator');
-                    if (indicator) {
-                        indicator.classList.add('filled');
-                    }
-                }
-                
-                input.addEventListener('input', function() {
-                    const value = this.value.trim();
-                    const isRequired = this.hasAttribute('required');
-                    const paramItem = this.closest('.parameter-item');
-                    
-                    // Remove error styling when user starts typing
-                    paramItem.classList.remove('missing-required', 'empty-field');
-                    
-                    // Update field status indicator
-                    const indicator = paramItem.querySelector('.field-status-indicator');
-                    if (indicator) {
-                        indicator.className = 'field-status-indicator ';
-                        if (!value) {
-                            indicator.classList.add(isRequired ? 'required-empty' : 'empty');
-                        } else {
-                            indicator.classList.add('filled');
-                        }
-                    }
-                });
-                
-                // Add blur validation
-                input.addEventListener('blur', function() {
-                    const value = this.value.trim();
-                    const isRequired = this.hasAttribute('required');
-                    const paramItem = this.closest('.parameter-item');
-                    
-                    if (isRequired && !value) {
-                        paramItem.classList.add('missing-required');
-                    } else if (!value) {
-                        paramItem.classList.add('empty-field');
-                    }
-                });
-            });
-            
-            // Auto-expand textareas
-            const textareas = document.querySelectorAll('.parameter-textarea');
-            textareas.forEach(textarea => {
-                textarea.addEventListener('input', function() {
-                    this.style.height = 'auto';
-                    this.style.height = (this.scrollHeight) + 'px';
-                });
-                
-                if (textarea.value.trim()) {
-                    setTimeout(() => {
-                        textarea.style.height = 'auto';
-                        textarea.style.height = (textarea.scrollHeight) + 'px';
-                    }, 100);
-                }
-            });
-            
-            // Load saved sections state from localStorage
-            loadSavedSectionsState();
+  <?php if (!$is_submitted): ?>
+  <div class="sec-actions">
+    <form method="POST" class="save-form" id="form-<?php echo (int)$cat['id']; ?>">
+      <input type="hidden" name="action" value="save_section">
+      <input type="hidden" name="category_id" value="<?php echo (int)$cat['id']; ?>">
+      <?php foreach ($params as $p): ?>
+      <input type="hidden" name="data[<?php echo he($p['code']); ?>]" id="hid_<?php echo he($p['code']); ?>">
+      <?php endforeach; ?>
+      <button type="submit" class="btn-save" onclick="return prepareSubmit(this, <?php echo (int)$cat['id']; ?>)">
+        <i class="fas fa-save"></i> Save Section
+      </button>
+      <div class="save-hint"><small><i class="fas fa-info-circle"></i> Data is saved to the database. You may return to edit at any time.</small></div>
+      <div class="last-saved-t" id="ls-<?php echo (int)$cat['id']; ?>"><?php if ($sv): echo 'Last saved: ' . date('d M Y H:i'); endif; ?></div>
+    </form>
+  </div>
+  <?php endif; ?>
+</div>
+<?php endforeach; ?>
+
+<?php /* ── Final submission ── */ ?>
+<?php if ($is_admin && !$is_submitted): ?>
+<div class="final-card">
+  <div class="final-hdr">
+    <h3><i class="fas fa-flag-checkered"></i> Final Report Submission</h3>
+    <p style="color:var(--text-secondary);font-size:.9rem;">All sections must be fully completed before the report can be submitted.</p>
+  </div>
+  <div class="prog-wrap">
+    <div class="prog-bar">
+      <div class="prog-fill" style="width:<?php echo $cpct; ?>%">
+        <?php echo $complete_cats; ?> of <?php echo $total_cats; ?> sections complete
+      </div>
+    </div>
+    <div class="prog-stats"><span>Completion</span><span><?php echo $cpct; ?>%</span></div>
+  </div>
+  <?php if ($complete_cats === $total_cats): ?>
+  <form method="POST">
+    <input type="hidden" name="action" value="submit_final">
+    <button type="submit" class="btn-final"
+      onclick="return confirm('Submit Final Report\n\nThis will lock the report and prevent any further editing.\n\nAre you sure you wish to proceed?')">
+      <i class="fas fa-paper-plane"></i> Submit Final Report
+    </button>
+    <p style="text-align:center;margin-top:10px;"><small style="color:var(--text-tertiary);"><i class="fas fa-shield-alt"></i> All sections validated. The report will be permanently locked after submission.</small></p>
+  </form>
+  <?php else: ?>
+  <button class="btn-final" disabled>
+    <i class="fas fa-lock"></i> <?php echo $total_cats - $complete_cats; ?> section(s) still require attention
+  </button>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php endif; /* end empty check */ ?>
+
+<div class="action-row">
+  <a href="months.php" class="btn-back"><i class="fas fa-arrow-left"></i> Back to Months</a>
+  <a href="report.php?month_id=<?php echo $month_id; ?>" class="btn-rpt"><i class="fas fa-chart-bar"></i> View Report</a>
+  <?php if ($is_admin && !$is_submitted): ?>
+  <button class="btn-val" onclick="validateAll()"><i class="fas fa-clipboard-check"></i> Validate All Fields</button>
+  <?php endif; ?>
+</div>
+
+</div><!-- /de-container -->
+</div></div></div>
+</div><!-- /main-container -->
+
+<script>
+/** Copy visible input values into hidden fields before form submit */
+function prepareSubmit(btn, catId) {
+    const sec = btn.closest('.section-card');
+    sec.querySelectorAll('.param-input').forEach(inp => {
+        const code = inp.getAttribute('name').replace('data[', '').replace(']', '');
+        const hid  = document.getElementById('hid_' + code);
+        if (hid) hid.value = inp.value;
+    });
+    return true;
+}
+
+/** Toast notification */
+function toast(msg, type = 'ts') {
+    const t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.innerHTML = `<div style="flex:1;font-weight:500;color:#222;font-size:.9rem;">${msg}</div>
+                   <button onclick="this.parentElement.remove()" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:#999;padding:0 0 0 8px;">&times;</button>`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 6000);
+}
+
+/** Highlight empty fields across all sections */
+function validateAll() {
+    let n = 0;
+    document.querySelectorAll('.section-card').forEach(sec => {
+        sec.querySelectorAll('.param-input').forEach(inp => {
+            const empty = !inp.value.trim();
+            const req   = inp.hasAttribute('required');
+            inp.style.borderColor = empty ? (req ? 'var(--danger-red)' : 'var(--warning-orange)') : '';
+            if (req && empty) n++;
         });
-        
-        // Load saved sections state from localStorage
-        function loadSavedSectionsState() {
-            const sections = document.querySelectorAll('.section-card');
-            sections.forEach(section => {
-                const sectionId = section.dataset.sectionId;
-                const isSaved = localStorage.getItem(`section_${sectionId}_saved`) === 'true';
-                const savedTimestamp = localStorage.getItem(`section_${sectionId}_timestamp`);
-                const sectionName = localStorage.getItem(`section_${sectionId}_name`);
-                
-                if (isSaved && savedTimestamp) {
-                    // Update status badge
-                    const statusBadge = section.querySelector('.status-badge');
-                    if (statusBadge) {
-                        const timestamp = new Date(savedTimestamp);
-                        const formattedTime = timestamp.toLocaleString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        statusBadge.title = `Last saved: ${formattedTime}`;
-                        statusBadge.className = 'status-badge status-saved';
-                        statusBadge.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
-                    }
-                    
-                    // Update last saved time display
-                    const lastSavedTime = document.getElementById('last-saved-' + sectionId);
-                    if (lastSavedTime && savedTimestamp) {
-                        const timestamp = new Date(savedTimestamp);
-                        const formattedTime = timestamp.toLocaleString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        lastSavedTime.textContent = `Last saved: ${formattedTime}`;
-                        lastSavedTime.style.display = 'block';
-                    }
-                }
-            });
-        }
-        
-        // Final submission confirmation
-        window.confirmFinalSubmission = function() {
-            return confirm(`⚠️ FINAL SUBMISSION CONFIRMATION\n\nAre you sure you want to submit the final report?\n\n• All data will be verified\n• Empty fields have been marked with '-'\n• The data will be locked and cannot be edited\n• This action requires administrative privileges\n\nClick OK to proceed with final submission.`);
-        };
-        
-        // Validate all sections function
-        window.validateAllSections = function() {
-            const sections = document.querySelectorAll('.section-card');
-            let issuesFound = 0;
-            const sectionsWithIssues = [];
-            
-            sections.forEach(section => {
-                const sectionId = section.dataset.sectionId;
-                const validation = validateSection(sectionId);
-                const sectionName = section.querySelector('.section-title').textContent.trim().split('\n')[0];
-                
-                if (!validation.isValid || validation.hasEmptyFields) {
-                    issuesFound++;
-                    sectionsWithIssues.push(sectionName);
-                    
-                    // Highlight section with issues
-                    section.style.boxShadow = '0 0 0 2px rgba(220, 53, 69, 0.3)';
-                    setTimeout(() => {
-                        section.style.boxShadow = '';
-                    }, 3000);
-                }
-            });
-            
-            if (issuesFound > 0) {
-                const sectionsList = sectionsWithIssues.join(', ');
-                showToast(`Found ${issuesFound} section(s) that need attention: ${sectionsList}`, 'warning', 5000);
-            } else {
-                showToast('All sections are properly filled! Ready for final submission.', 'success');
-            }
-        };
-        
-        // Show unsaved changes warning
-        window.addEventListener('beforeunload', function(e) {
-            const hasUnsavedChanges = document.querySelectorAll('input:not([readonly]), textarea:not([readonly])')
-                .some(input => {
-                    const currentValue = input.value.trim();
-                    const originalValue = input.dataset.originalValue || '';
-                    return currentValue !== originalValue;
-                });
-            
-            if (hasUnsavedChanges) {
-                e.preventDefault();
-                e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-                return e.returnValue;
-            }
-        });
-        
-        // Auto-save reminder (every 2 minutes)
-        setInterval(() => {
-            const hasUnsavedChanges = document.querySelectorAll('input:not([readonly]), textarea:not([readonly])')
-                .some(input => {
-                    const currentValue = input.value.trim();
-                    const originalValue = input.dataset.originalValue || '';
-                    return currentValue !== originalValue && currentValue !== '';
-                });
-            
-            if (hasUnsavedChanges) {
-                showToast('You have unsaved changes. Click "Save Section" to preserve your work.', 'warning', 3000);
-            }
-        }, 120000); // 2 minutes
-    </script>
+    });
+    toast(n ? `${n} required field(s) are empty. Please complete them before submitting.` : 'All fields look good — ready for submission.', n ? 'tw' : 'ts');
+}
+
+/** Auto-resize textareas */
+document.querySelectorAll('.param-ta').forEach(ta => {
+    const resize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    ta.addEventListener('input', resize);
+    if (ta.value) setTimeout(resize, 80);
+});
+
+/** Unsaved changes warning */
+let dirty = false;
+document.querySelectorAll('.param-input').forEach(i => i.addEventListener('input', () => { dirty = true; }));
+document.querySelectorAll('.save-form').forEach(f => f.addEventListener('submit', () => { dirty = false; }));
+window.addEventListener('beforeunload', e => {
+    if (dirty) { e.preventDefault(); e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'; }
+});
+</script>
 </body>
 </html>
-<?php
-if (isset($conn)) {
-    $conn->close();
-}
+<?php if (isset($conn)) $conn->close(); ?>

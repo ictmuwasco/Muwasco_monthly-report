@@ -1,7 +1,5 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+
 
 // If no user is logged in, don't show the navbar
 if (!isset($_SESSION['user_id'])) {

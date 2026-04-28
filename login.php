@@ -294,10 +294,10 @@ function checkDatabaseConnection() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | AquaTrack Pro - MUWASCO</title>
+    <title>LOGIn  MUWASCO MONTHLY REPORT</title>
     
     <!-- Security Meta Tags -->
-    <meta name="description" content="Secure login for AquaTrack Pro - MUWASCO Water Utility System">
+    <meta name="description" content="Secure login  MUWASCO Water Utility System">
     <meta name="author" content="MUWASCO">
     
     <!-- Favicon -->
