@@ -4,8 +4,8 @@
  * UI rendered via resources/views/users/index.php on shared Tailwind layout.
  * All mutation handlers (AJAX + row actions) are POST-only & CSRF-protected.
  */
-require_once __DIR__ . '/bootstrap/init.php';
-require_once __DIR__ . '/auth_functions.php';
+require_once __DIR__ . '/backend/bootstrap/app.php';
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
 require_once __DIR__ . '/db.php';
 
 requireLogin();

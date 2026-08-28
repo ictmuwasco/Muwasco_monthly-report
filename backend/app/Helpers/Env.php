@@ -24,6 +24,11 @@ function env_load(string $path): void
     putenv('APP_ENV_LOADED=1');
 }
 
+function env_loaded(): bool
+{
+    return (bool) getenv('APP_ENV_LOADED');
+}
+
 function env(string $key, ?string $default = null): ?string
 {
     $value = getenv($key);

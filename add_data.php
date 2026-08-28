@@ -12,10 +12,10 @@
  *   resources/views/monthly-data/entry.php    — Tailwind presentation
  */
 
-require_once __DIR__ . '/bootstrap/init.php';
+require_once __DIR__ . '/backend/bootstrap/app.php';
 require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/auth_functions.php';
-require_once __DIR__ . '/role_functions.php';
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
+require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
 require_once __DIR__ . '/email_config.php';
 
 /* ── Shared view helpers (used by views across the app) ── */

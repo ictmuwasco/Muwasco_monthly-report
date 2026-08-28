@@ -10,7 +10,7 @@ ini_set('log_errors', 1);
 ini_set('error_log', __DIR__ . '/storage/logs/php_errors.log');
 
 // ── Secure bootstrap (session, headers, .env, DB via $conn) ─────────────────
-require_once __DIR__ . '/bootstrap/init.php';
+require_once __DIR__ . '/backend/bootstrap/app.php';
 
 // ── Auth check ───────────────────────────────────────────────────────────────
 if (!isset($_SESSION['user_id'])) {
@@ -19,8 +19,8 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // ── Core includes ─────────────────────────────────────────────────────────────
-require_once __DIR__ . '/auth_functions.php';
-require_once __DIR__ . '/role_functions.php';
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
+require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
 require_once __DIR__ . '/email_config.php';
 
 // ── PHPMailer — use statements MUST come before any requires that load them.

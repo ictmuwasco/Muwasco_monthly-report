@@ -7,8 +7,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-require_once __DIR__ . '/bootstrap/init.php';
-require_once __DIR__ . '/auth_functions.php';
+require_once __DIR__ . '/backend/bootstrap/app.php';
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
 require_once 'db.php';
 
 // Auth + admin gate

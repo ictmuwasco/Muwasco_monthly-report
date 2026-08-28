@@ -16,9 +16,9 @@
 declare(strict_types=1);
 
 /* PSR-4 autoloading (App\ => app/) via Composer */
-require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
 
-env_load(dirname(__DIR__) . '/.env');
+env_load(dirname(__DIR__, 2) . '/.env');
 
 /* ── Error handling ─────────────────────────────────────────────── */
 $appDebug = env('APP_DEBUG', 'false') === 'true';

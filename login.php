@@ -1,8 +1,8 @@
 <?php
 // login.php — Auth logic preserved; UI modernized with Tailwind.
 
-require_once __DIR__ . '/bootstrap/init.php';   // secure session, headers, error handling, DB via .env
-require_once __DIR__ . '/auth_functions.php';
+require_once __DIR__ . '/backend/bootstrap/app.php';   // secure session, headers, error handling, DB via .env
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
 
 // CSRF Token for form protection
 if (!isset($_SESSION['csrf_token'])) {

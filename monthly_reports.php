@@ -2,8 +2,8 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 require_once 'db.php';
-require_once 'auth_functions.php';
-require_once 'role_functions.php';
+require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
+require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
 
 // Check if user is logged in
 session_start();
