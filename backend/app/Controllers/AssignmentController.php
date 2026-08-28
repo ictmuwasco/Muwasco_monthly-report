@@ -7,9 +7,9 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-require_once __DIR__ . '/backend/bootstrap/app.php';
-require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/backend/config/database.php';
+require_once __DIR__ . '/../../bootstrap/app.php';
+require_once __DIR__ . '/../Helpers/AuthFunctions.php';
+require_once __DIR__ . '/../../config/database.php';
 
 // Auth + admin gate
 requireLogin();
@@ -260,11 +260,11 @@ while ($row = $users_count_result->fetch_assoc()) {
 
 /* Render: Tailwind view on shared layout */
 ob_start();
-require __DIR__ . '/frontend/src/pages/assignments.php';
+require __DIR__ . '/../../../frontend/src/pages/assignments.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Assignments · MUWASCO Monthly Report';
 $currentPage = 'assignment.php';
-require __DIR__ . '/frontend/src/layouts/app-layout.php';
+require __DIR__ . '/../../../frontend/src/layouts/app-layout.php';

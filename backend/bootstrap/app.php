@@ -15,6 +15,8 @@
 
 declare(strict_types=1);
 
+use App\Helpers\Logger;
+
 /* PSR-4 autoloading (App\ => app/) via Composer */
 require_once __DIR__ . '/../../vendor/autoload.php';
 

@@ -42,7 +42,7 @@ monthly_report/
 └── tailwind.config.js
 ```
 
-**Request flow:** `*.php` entry point (root, URL-preserving) or `public/index.php` router → `backend/bootstrap/app.php` → auth/CSRF checks → controller logic → `backend/app` services/models → view in `frontend/src/pages` → rendered inside `frontend/src/layouts/app-layout.php`.
+**Request flow:** Controller in `backend/app/Controllers/` dispatched by `public/index.php` (root `.htaccess` rewrites all URLs; no PHP files in root) → `backend/bootstrap/app.php` → auth/CSRF checks → controller logic → `backend/app` services/models → view in `frontend/src/pages` → rendered inside `frontend/src/layouts/app-layout.php`.
 
 ## Setup
 
@@ -64,4 +64,4 @@ composer test             # or: vendor/bin/phpunit
 
 ## URLs (unchanged by the refactor)
 
-`/index.php` (dashboard), `/login.php`, `/logout.php`, `/add_data.php`, `/months.php`, `/reports.php`, `/monthly_reports.php`, `/assignment.php`, `/user_management.php`
+Same URLs as before (handled by `.htaccess` → `public/index.php` → controllers). No PHP files remain in the project root.

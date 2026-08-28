@@ -12,11 +12,11 @@
  *   frontend/src/pages/data-entry.php    — Tailwind presentation
  */
 
-require_once __DIR__ . '/backend/bootstrap/app.php';
-require_once __DIR__ . '/backend/config/database.php';
-require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
-require_once __DIR__ . '/backend/config/mail.php';
+require_once __DIR__ . '/../../bootstrap/app.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../Helpers/AuthFunctions.php';
+require_once __DIR__ . '/../Helpers/RoleFunctions.php';
+require_once __DIR__ . '/../../config/mail.php';
 
 /* ── Shared view helpers (used by views across the app) ── */
 function he(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
@@ -122,12 +122,12 @@ extract($vars);
 
 /* ═══ RENDER: Tailwind view inside shared app layout ═══ */
 ob_start();
-require __DIR__ . '/frontend/src/pages/data-entry.php';
+require __DIR__ . '/../../../frontend/src/pages/data-entry.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Data Entry · ' . he($month['name']) . ' — MUWASCO';
 $currentPage = 'add_data.php';
-require __DIR__ . '/frontend/src/layouts/app-layout.php';
+require __DIR__ . '/../../../frontend/src/layouts/app-layout.php';
 exit;

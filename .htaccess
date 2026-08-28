@@ -1,0 +1,31 @@
+# MUWASCO Monthly Report — front-controller routing.
+# All application URLs are handled by public/index.php; real asset
+# files are served directly. Sensitive directories are blocked.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block direct access to backend and other sensitive paths
+    RewriteRule ^backend/ - [F,L]
+    RewriteRule ^vendor/ - [F,L]
+    RewriteRule ^tests/ - [F,L]
+    RewriteRule ^storage/ - [F,L]
+    RewriteRule ^database/ - [F,L]
+    RewriteRule ^node_modules/ - [F,L]
+
+    # Block composer/package files
+    RewriteRule ^(composer\.(json|lock)|package(-lock)?\.json|package-lock\.json|tailwind\.config\.js|phpunit\.xml|\.env.*)$ - [F,L]
+
+    # Root URL → front controller
+    RewriteRule ^$ public/index.php [L]
+
+    # Any non-file request → front controller
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule . public/index.php [L]
+</IfModule>
+
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>

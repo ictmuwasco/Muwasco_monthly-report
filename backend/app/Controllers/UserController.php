@@ -4,9 +4,9 @@
  * UI rendered via frontend/src/pages/users.php on shared Tailwind layout.
  * All mutation handlers (AJAX + row actions) are POST-only & CSRF-protected.
  */
-require_once __DIR__ . '/backend/bootstrap/app.php';
-require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/backend/config/database.php';
+require_once __DIR__ . '/../../bootstrap/app.php';
+require_once __DIR__ . '/../Helpers/AuthFunctions.php';
+require_once __DIR__ . '/../../config/database.php';
 
 requireLogin();
 if (!isAdmin()) {
@@ -195,11 +195,11 @@ while ($role = $roles_result->fetch_assoc()) {
 }
 /* Render: Tailwind view inside shared app layout */
 ob_start();
-require __DIR__ . '/frontend/src/pages/users.php';
+require __DIR__ . '/../../../frontend/src/pages/users.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'User Management · MUWASCO Monthly Report';
 $currentPage = 'user_management.php';
-require __DIR__ . '/frontend/src/layouts/app-layout.php';
+require __DIR__ . '/../../../frontend/src/layouts/app-layout.php';

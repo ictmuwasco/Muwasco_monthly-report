@@ -1,9 +1,9 @@
 <?php
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-require_once __DIR__ . '/backend/config/database.php';
-require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../Helpers/AuthFunctions.php';
+require_once __DIR__ . '/../Helpers/RoleFunctions.php';
 
 // Check if user is logged in
 session_start();
@@ -578,5 +578,5 @@ if (isAdmin() && $current_month_id) {
     $overall_stats = $report->getOverallProgressStats($current_month_id);
 }
 // Render through shared Tailwind layout
-require_once __DIR__ . "/frontend/src/pages/reports.php";
+require_once __DIR__ . "/../../../frontend/src/pages/reports.php";
 ?>

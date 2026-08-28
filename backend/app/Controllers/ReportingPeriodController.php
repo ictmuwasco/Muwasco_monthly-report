@@ -7,10 +7,10 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 0);   // OFF in production — output breaks redirects
 ini_set('log_errors', 1);
-ini_set('error_log', __DIR__ . '/storage/logs/php_errors.log');
+ini_set('error_log', __DIR__ . '/../../../storage/logs/php_errors.log');
 
 // ── Secure bootstrap (session, headers, .env, DB via $conn) ─────────────────
-require_once __DIR__ . '/backend/bootstrap/app.php';
+require_once __DIR__ . '/../../bootstrap/app.php';
 
 // ── Auth check ───────────────────────────────────────────────────────────────
 if (!isset($_SESSION['user_id'])) {
@@ -19,9 +19,9 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // ── Core includes ─────────────────────────────────────────────────────────────
-require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
-require_once __DIR__ . '/backend/config/mail.php';
+require_once __DIR__ . '/../Helpers/AuthFunctions.php';
+require_once __DIR__ . '/../Helpers/RoleFunctions.php';
+require_once __DIR__ . '/../../config/mail.php';
 
 // ── PHPMailer — use statements MUST come before any requires that load them.
 //    Load autoload safely so a missing vendor dir doesn't kill the page.
@@ -31,9 +31,9 @@ use PHPMailer\PHPMailer\Exception as MailException;
 
 $phpmailer_available = false;
 foreach ([
-    __DIR__ . '/vendor/autoload.php',
-    __DIR__ . '/phpmailer/src/PHPMailer.php',
-    __DIR__ . '/PHPMailer/src/PHPMailer.php',
+    __DIR__ . '/../../../vendor/autoload.php',
+    __DIR__ . '/../../../phpmailer/src/PHPMailer.php',
+    __DIR__ . '/../../../PHPMailer/src/PHPMailer.php',
 ] as $_pm_path) {
     if (!file_exists($_pm_path)) continue;
     require_once $_pm_path;
@@ -337,12 +337,12 @@ $stats = $conn->query("
 
 /* ═══ RENDER: Tailwind view inside shared app layout ═══ */
 ob_start();
-require __DIR__ . '/frontend/src/pages/reporting-months.php';
+require __DIR__ . '/../../../frontend/src/pages/reporting-months.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Months · MUWASCO Monthly Report';
 $currentPage = 'months.php';
-require __DIR__ . '/frontend/src/layouts/app-layout.php';
+require __DIR__ . '/../../../frontend/src/layouts/app-layout.php';
 

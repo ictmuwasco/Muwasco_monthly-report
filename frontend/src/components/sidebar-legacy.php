@@ -7,24 +7,25 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Get database connection
-require_once __DIR__ . '/backend/config/database.php';
+require_once dirname(__DIR__, 2) . '/backend/config/database.php';
 
 // Include functions if not already included
 if (!function_exists('getUserInfo')) {
     // Try to include auth_functions.php or functions.php
-    $function_files = ['auth_functions.php', 'functions.php'];
-    $function_included = false;
+    $function_files = [
+        dirname(__DIR__, 2) . '/backend/app/Helpers/AuthFunctions.php',
+        dirname(__DIR__, 2) . '/backend/app/Helpers/RoleFunctions.php',
+    ];
     
     foreach ($function_files as $file) {
         if (file_exists($file)) {
             require_once $file;
-            $function_included = true;
             break;
         }
     }
     
     // If functions file not found, define the function here
-    if (!$function_included) {
+    if (!function_exists('getUserInfo')) {
         function getUserInfo($conn, $user_id) {
             $stmt = $conn->prepare("
                 SELECT u.*, r.name as role 
