@@ -2,6 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    /* Brand */
+    --primary-900: #183F52;
+    --primary-800: #214F65;
+    --primary-700: #2E6178;
+    --primary-600: #3E7188;
+    --primary-500: #4E849A;
+
+    /* Accent */
+    --accent: #0F9D8A;
+
+    /* Backgrounds */
+    --background: #F5F7FA;
+    --surface: #FFFFFF;
+    --surface-muted: #F8FAFC;
+
+    /* Text */
+    --text-primary: #1E293B;
+    --text-secondary: #64748B;
+    --text-muted: #94A3B8;
+
+    /* Borders */
+    --border: #E2E8F0;
+    --border-light: #EEF2F6;
+
+    /* Status */
+    --success: #15803D;
+    --warning: #B7791F;
+    --danger: #DC2626;
+    --info: #2563EB;
+
+    /* Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
+
+    /* Spacing scale */
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  }
+}
+
 @layer components {
   /* Buttons */
   .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 disabled:pointer-events-none; }
@@ -24,10 +71,18 @@
   .table-td { @apply px-4 py-3 whitespace-nowrap text-gray-700; }
 
   /* Status badges (approval workflow) */
-  .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .badge { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium; }
   .badge-approved { @apply badge bg-emerald-100 text-emerald-800; }
-  .badge-pending { @apply badge bg-amber-100 text-amber-800; }
+  .badge-pending  { @apply badge bg-amber-100 text-amber-800; }
   .badge-rejected { @apply badge bg-red-100 text-red-700; }
+  .badge-draft    { @apply badge bg-slate-100 text-slate-600; }
+  .badge-info     { @apply badge bg-blue-100 text-blue-700; }
+
+  /* Consistent page header (title + description + actions) */
+  .page-header  { @apply mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between; }
+  .page-title   { @apply text-2xl font-bold tracking-tight text-gray-900; }
+  .page-desc    { @apply mt-1 text-sm text-gray-500; }
+  .page-actions { @apply flex flex-wrap items-center gap-2; }
 
   /* Alerts */
   .alert { @apply rounded-lg p-4 text-sm mb-4; }

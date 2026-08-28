@@ -9,12 +9,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // MUWASCO brand palette — tune to logo once approved
+        // MUWASCO brand palette (deep water blues)
         primary: {
-          DEFAULT: '#0e7490',
-          dark: '#155e75',
-          light: '#67e8f9',
+          DEFAULT: '#2E6178',
+          dark: '#183F52',
+          light: '#4E849A',
         },
+        accent: '#0F9D8A',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
