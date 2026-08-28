@@ -13,10 +13,10 @@
  */
 
 require_once __DIR__ . '/backend/bootstrap/app.php';
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/backend/config/database.php';
 require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
 require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
-require_once __DIR__ . '/email_config.php';
+require_once __DIR__ . '/backend/config/mail.php';
 
 /* ── Shared view helpers (used by views across the app) ── */
 function he(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }

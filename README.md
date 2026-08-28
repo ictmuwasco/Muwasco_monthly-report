@@ -54,7 +54,7 @@ npm run build             # Tailwind → public/assets/css/app.css
 npm run watch             # during development
 ```
 
-Serve via XAMPP Apache pointing at the project root (current, URL-preserving), or point a vhost docroot at `public/` and use `public/index.php` as the front controller. Dev alternative: `php -S localhost:8000 public/index.php`.
+Serve via XAMPP Apache pointing at the project root (current, URL-preserving), or point a vhost docroot at `public/` and use `public/index.php` as the front controller. Dev alternative: `php -S localhost:8000 -t public public/index.php`.
 
 ## Tests
 

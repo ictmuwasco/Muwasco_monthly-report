@@ -7,7 +7,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Get database connection
-require_once 'db.php';
+require_once __DIR__ . '/backend/config/database.php';
 
 // Include functions if not already included
 if (!function_exists('getUserInfo')) {

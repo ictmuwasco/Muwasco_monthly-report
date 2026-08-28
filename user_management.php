@@ -6,7 +6,7 @@
  */
 require_once __DIR__ . '/backend/bootstrap/app.php';
 require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/backend/config/database.php';
 
 requireLogin();
 if (!isAdmin()) {

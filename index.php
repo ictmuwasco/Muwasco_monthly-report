@@ -12,7 +12,7 @@ if (!isLoggedIn()) {
     exit;
 }
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/backend/config/database.php';
 
 // Current user info for the layout
 $stmt = $conn->prepare('SELECT u.*, r.name AS role FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.id = ?');

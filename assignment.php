@@ -9,7 +9,7 @@ ini_set('log_errors', 1);
 
 require_once __DIR__ . '/backend/bootstrap/app.php';
 require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
-require_once 'db.php';
+require_once __DIR__ . '/backend/config/database.php';
 
 // Auth + admin gate
 requireLogin();

@@ -21,7 +21,7 @@ if (!isset($_SESSION['user_id'])) {
 // ── Core includes ─────────────────────────────────────────────────────────────
 require_once __DIR__ . '/backend/app/Helpers/AuthFunctions.php';
 require_once __DIR__ . '/backend/app/Helpers/RoleFunctions.php';
-require_once __DIR__ . '/email_config.php';
+require_once __DIR__ . '/backend/config/mail.php';
 
 // ── PHPMailer — use statements MUST come before any requires that load them.
 //    Load autoload safely so a missing vendor dir doesn't kill the page.

@@ -19,7 +19,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     die('TCPDF library not found. Please install via composer: composer require tecnickcom/tcpdf');
 }
 
-require_once 'db.php';
+require_once __DIR__ . '/backend/config/database.php';
 
 function getUserInfo($conn, $user_id) {
     $stmt = $conn->prepare("
