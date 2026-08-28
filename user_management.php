@@ -16,7 +16,6 @@ if (!isAdmin()) {
 }
 
 // CSRF protection for all POST endpoints
-require_once __DIR__ . '/app/Middleware/CsrfMiddleware.php';
 
 $message = '';
 $message_type = '';

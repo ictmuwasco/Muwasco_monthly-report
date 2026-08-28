@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Services;
 /**
  * MonthlyDataService — business logic for the Monthly Data workflow.
  * Orchestrates MonthlyDataModel (persistence), MonthlyDataValidator (input)

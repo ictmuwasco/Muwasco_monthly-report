@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Middleware;
 /**
  * app/Middleware/CsrfMiddleware.php — CSRF token generation & validation.
  *
@@ -10,11 +12,10 @@
  */
 
 class CsrfMiddleware
-{
-    public static function token(): string
+{    public static function token(): string
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
-            throw new RuntimeException('Session must be started before CSRF token generation.');
+            throw new \RuntimeException('Session must be started before CSRF token generation.');
         }
         if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -63,14 +64,3 @@ class CsrfMiddleware
     }
 }
 
-/** Convenience helper for views. */
-function csrf_token(): string
-{
-    return CsrfMiddleware::token();
-}
-
-/** Convenience helper: returns the hidden input HTML for forms. */
-function csrf_field(): string
-{
-    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') . '">';
-}

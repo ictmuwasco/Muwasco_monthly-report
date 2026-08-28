@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Helpers;
 /**
  * app/Helpers/Logger.php — Structured file logging to storage/logs/.
  * Levels: INFO, WARNING, ERROR, CRITICAL. Never logs secrets or passwords.

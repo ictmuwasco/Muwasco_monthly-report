@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Services;
 /**
  * EmailService — PHPMailer bootstrap, SMTP transport & notification templates.
  * Extracted from add_data.php (no logic changes, only re-organized).

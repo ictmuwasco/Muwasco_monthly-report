@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Validators;
 /**
  * app/Validators/MonthlyDataValidator.php
  * Server-side validation of monthly values against each parameter's
@@ -12,7 +14,7 @@ class MonthlyDataValidator
      * @parammysqli $conn
      * @return array [ok => bool, errors => [code => message]]
      */
-    public static function validateCodes(mysqli $conn, array $data): array
+    public static function validateCodes(\mysqli $conn, array $data): array
     {
         if (!$data) return ['ok' => true, 'errors' => []];
 
@@ -38,34 +40,45 @@ class MonthlyDataValidator
             $p = $params[$code] ?? null;
             if (!$p) { $errors[$code] = 'Unknown parameter code.'; continue; }
 
-            switch ($p['data_type']) {
-                case 'number':
-                    if (!is_numeric($value)) {
-                        $errors[$code] = ($p['label'] ?: $code) . ' must be a number.';
-                    }
-                    break;
-                case 'currency':
-                    $clean = str_replace([',', 'KSh', 'KES', ' '], '', $value);
-                    if (!is_numeric($clean)) {
-                        $errors[$code] = ($p['label'] ?: $code) . ' must be a currency amount.';
-                    }
-                    break;
-                case 'percentage':
-                    $clean = rtrim($value, '%');
-                    if (!is_numeric($clean)) {
-                        $errors[$code] = ($p['label'] ?: $code) . ' must be a percentage.';
-                    } elseif ((float)$clean < 0 || (float)$clean > 100) {
-                        $errors[$code] = ($p['label'] ?: $code) . ' must be between 0 and 100.';
-                    }
-                    break;
-                case 'text':
-                default:
-                    if (mb_strlen($value) > 2000) {
-                        $errors[$code] = ($p['label'] ?: $code) . ' is too long (max 2000 characters).';
-                    }
-            }
+            $err = self::checkValue((string)$p['data_type'], (string)$p['label'] ?: $code, $value);
+            if ($err !== null) $errors[$code] = $err;
         }
 
         return ['ok' => !$errors, 'errors' => $errors];
+    }
+
+    /**
+     * Pure validation rule for a single value against a declared type.
+     * @return string|null Error message, or null when valid.
+     */
+    public static function checkValue(string $data_type, string $label, string $value): ?string
+    {
+        switch ($data_type) {
+            case 'number':
+                if (!is_numeric($value)) {
+                    return $label . ' must be a number.';
+                }
+                break;
+            case 'currency':
+                $clean = str_replace([',', 'KSh', 'KES', ' '], '', $value);
+                if (!is_numeric($clean)) {
+                    return $label . ' must be a currency amount.';
+                }
+                break;
+            case 'percentage':
+                $clean = rtrim($value, '%');
+                if (!is_numeric($clean)) {
+                    return $label . ' must be a percentage.';
+                } elseif ((float)$clean < 0 || (float)$clean > 100) {
+                    return $label . ' must be between 0 and 100.';
+                }
+                break;
+            case 'text':
+            default:
+                if (mb_strlen($value) > 2000) {
+                    return $label . ' is too long (max 2000 characters).';
+                }
+        }
+        return null;
     }
 }

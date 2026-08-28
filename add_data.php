@@ -17,12 +17,6 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth_functions.php';
 require_once __DIR__ . '/role_functions.php';
 require_once __DIR__ . '/email_config.php';
-require_once __DIR__ . '/app/Models/MonthlyDataModel.php';
-require_once __DIR__ . '/app/Services/EmailService.php';
-require_once __DIR__ . '/app/Services/MonthlyDataService.php';
-require_once __DIR__ . '/app/Controllers/MonthlyDataController.php';
-require_once __DIR__ . '/app/Validators/MonthlyDataValidator.php';
-require_once __DIR__ . '/app/Middleware/CsrfMiddleware.php';
 
 /* ── Shared view helpers (used by views across the app) ── */
 function he(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }

@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Models;
 /**
  * MonthlyDataModel — all database access for the Monthly Data feature.
  */

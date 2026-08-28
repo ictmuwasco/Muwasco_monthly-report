@@ -1,6 +1,22 @@
 {
     "require": {
         "tecnickcom/tcpdf": "^6.10",
-        "phpmailer/phpmailer": "^7.0"
+        "phpmailer/phpmailer": "^7.0",
+        "php": ">=8.0"
+    },
+    "autoload": {
+        "files": [
+            "app/Helpers/Env.php",
+            "app/Helpers/csrf_helpers.php"
+        ],
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "*"
+    },
+    "scripts": {
+        "test": "phpunit"
     }
 }

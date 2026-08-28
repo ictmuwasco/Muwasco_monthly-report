@@ -186,7 +186,6 @@ if (isset($_SESSION['email_status'])) {
 }
 
 // ── CSRF protection for all state-changing requests ─────────────────────────
-require_once __DIR__ . '/app/Middleware/CsrfMiddleware.php';
 CsrfMiddleware::verifyOrDie();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {

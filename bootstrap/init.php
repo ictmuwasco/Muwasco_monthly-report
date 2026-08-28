@@ -15,9 +15,8 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../app/Helpers/Env.php';
-require_once __DIR__ . '/../app/Helpers/Logger.php';
-require_once __DIR__ . '/../app/Middleware/CsrfMiddleware.php';
+/* PSR-4 autoloading (App\ => app/) via Composer */
+require_once __DIR__ . '/../vendor/autoload.php';
 
 env_load(dirname(__DIR__) . '/.env');
 

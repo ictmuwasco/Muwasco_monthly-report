@@ -19,7 +19,6 @@ if (!isAdmin()) {
     exit();
 }
 
-require_once __DIR__ . '/app/Middleware/CsrfMiddleware.php';
 // One-time CSRF check covering every POST action below.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     CsrfMiddleware::verifyOrDie();

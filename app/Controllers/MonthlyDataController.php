@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Controllers;
 /**
  * MonthlyDataController — HTTP dispatch layer for the Monthly Data feature.
  * Receives the authenticated request context, routes POST actions to

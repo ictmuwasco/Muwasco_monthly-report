@@ -1,6 +1,7 @@
 <?php
 /**
  * app/Helpers/Env.php — Minimal .env loader (no external dependencies).
+ * Global helper functions, loaded via Composer "files" autoloading.
  * Loads key=value pairs from project .env into getenv()/$_ENV once.
  */
 
@@ -9,7 +10,7 @@ function env_load(string $path): void
     if (getenv('APP_ENV_LOADED')) return; // load only once
     if (!is_readable($path)) {
         // Fail loudly in dev, safely in prod is handled by init.php
-        throw new RuntimeException('.env file not found at ' . $path);
+        throw new \RuntimeException('.env file not found at ' . $path);
     }
     foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
@@ -28,3 +29,4 @@ function env(string $key, ?string $default = null): ?string
     $value = getenv($key);
     return $value === false ? $default : $value;
 }
+
