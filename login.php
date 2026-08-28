@@ -428,7 +428,7 @@ function checkDatabaseConnection() {
 
             <!-- Brand header -->
             <header class="brand-header">
-                <img src="muwascologo.png" alt="MUWASCO logo">
+                <img src="public/assets/images/muwascologo.png" alt="MUWASCO logo">
                 <div>
                     <p class="brand-title">MUWASCO</p>
                     <p class="brand-subtitle">Murang'a Water &amp; Sanitation Company</p>
@@ -465,7 +465,7 @@ function checkDatabaseConnection() {
 
             <div class="login-card">
                 <div class="mb-7 flex items-center gap-3 lg:hidden">
-                    <img src="muwascologo.png" alt="MUWASCO logo"
+                    <img src="public/assets/images/muwascologo.png" alt="MUWASCO logo"
                          class="h-11 w-11 rounded-lg bg-white object-contain p-1 shadow ring-1 ring-gray-200">
                     <div>
                         <p class="font-bold leading-tight text-gray-900">MUWASCO</p>

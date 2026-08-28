@@ -1,7 +1,7 @@
 <?php
 /**
  * assignment.php — Role ↔ Parameter/Category assignment management (logic).
- * UI rendered via resources/views/assignments/index.php on shared Tailwind layout.
+ * UI rendered via frontend/src/pages/assignments.php on shared Tailwind layout.
  */
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -260,11 +260,11 @@ while ($row = $users_count_result->fetch_assoc()) {
 
 /* Render: Tailwind view on shared layout */
 ob_start();
-require __DIR__ . '/resources/views/assignments/index.php';
+require __DIR__ . '/frontend/src/pages/assignments.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Assignments · MUWASCO Monthly Report';
 $currentPage = 'assignment.php';
-require __DIR__ . '/resources/views/layouts/app.php';
+require __DIR__ . '/frontend/src/layouts/app-layout.php';

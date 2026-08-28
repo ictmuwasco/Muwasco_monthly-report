@@ -386,10 +386,11 @@ function generatePDFContent($data, $month_ids, $month_labels) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="public/assets/css/legacy.css">
 </head>
 <body>
-    <?php if (file_exists('nav_bar.php')) include 'nav_bar.php'; ?>
+    <?php $legacySidebar = __DIR__ . '/frontend/src/components/sidebar-legacy.php';
+          if (file_exists($legacySidebar)) include $legacySidebar; ?>
 
     <div class="main-container">
       <div class="main-content">

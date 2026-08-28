@@ -9,7 +9,7 @@
  *   app/Services/MonthlyDataService.php   — business rules
  *   app/Services/EmailService.php         — SMTP + notification templates
  *   app/Controllers/MonthlyDataController.php — HTTP dispatch
- *   resources/views/monthly-data/entry.php    — Tailwind presentation
+ *   frontend/src/pages/data-entry.php    — Tailwind presentation
  */
 
 require_once __DIR__ . '/backend/bootstrap/app.php';
@@ -122,12 +122,12 @@ extract($vars);
 
 /* ═══ RENDER: Tailwind view inside shared app layout ═══ */
 ob_start();
-require __DIR__ . '/resources/views/monthly-data/entry.php';
+require __DIR__ . '/frontend/src/pages/data-entry.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Data Entry · ' . he($month['name']) . ' — MUWASCO';
 $currentPage = 'add_data.php';
-require __DIR__ . '/resources/views/layouts/app.php';
+require __DIR__ . '/frontend/src/layouts/app-layout.php';
 exit;

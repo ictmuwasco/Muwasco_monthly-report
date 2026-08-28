@@ -168,5 +168,5 @@ ob_start();
 $content     = ob_get_clean();
 $pageTitle   = 'Dashboard · MUWASCO Monthly Report';
 $currentPage = 'index.php';
-require __DIR__ . '/resources/views/layouts/app.php';
+require __DIR__ . '/frontend/src/layouts/app-layout.php';
 

@@ -1,7 +1,7 @@
 <?php
 /**
  * months.php — Reporting period management (logic).
- * UI rendered via resources/views/months/index.php on the shared Tailwind layout.
+ * UI rendered via frontend/src/pages/reporting-months.php on the shared Tailwind layout.
  */
 
 error_reporting(E_ALL);
@@ -337,12 +337,12 @@ $stats = $conn->query("
 
 /* ═══ RENDER: Tailwind view inside shared app layout ═══ */
 ob_start();
-require __DIR__ . '/resources/views/months/index.php';
+require __DIR__ . '/frontend/src/pages/reporting-months.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'Months · MUWASCO Monthly Report';
 $currentPage = 'months.php';
-require __DIR__ . '/resources/views/layouts/app.php';
+require __DIR__ . '/frontend/src/layouts/app-layout.php';
 

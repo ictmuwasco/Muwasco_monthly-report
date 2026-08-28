@@ -2,8 +2,9 @@
 module.exports = {
   content: [
     './*.php',                    // legacy root pages during gradual migration
-    './resources/views/**/*.php',
-    './app/**/*.php',
+    './frontend/src/**/*.php',
+    './backend/app/**/*.php',
+    './backend/bootstrap/**/*.php',
     './public/assets/js/**/*.js',
   ],
   theme: {

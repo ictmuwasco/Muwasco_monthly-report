@@ -1,7 +1,7 @@
 <?php
 /**
  * user_management.php — Admin user administration (logic).
- * UI rendered via resources/views/users/index.php on shared Tailwind layout.
+ * UI rendered via frontend/src/pages/users.php on shared Tailwind layout.
  * All mutation handlers (AJAX + row actions) are POST-only & CSRF-protected.
  */
 require_once __DIR__ . '/backend/bootstrap/app.php';
@@ -195,11 +195,11 @@ while ($role = $roles_result->fetch_assoc()) {
 }
 /* Render: Tailwind view inside shared app layout */
 ob_start();
-require __DIR__ . '/resources/views/users/index.php';
+require __DIR__ . '/frontend/src/pages/users.php';
 $content = ob_get_clean();
 
 if (isset($conn)) $conn->close();
 
 $pageTitle   = 'User Management · MUWASCO Monthly Report';
 $currentPage = 'user_management.php';
-require __DIR__ . '/resources/views/layouts/app.php';
+require __DIR__ . '/frontend/src/layouts/app-layout.php';

@@ -578,5 +578,5 @@ if (isAdmin() && $current_month_id) {
     $overall_stats = $report->getOverallProgressStats($current_month_id);
 }
 // Render through shared Tailwind layout
-require_once __DIR__ . "/resources/views/reports/dashboard.php";
+require_once __DIR__ . "/frontend/src/pages/reports.php";
 ?>
