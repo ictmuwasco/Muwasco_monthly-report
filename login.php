@@ -1,19 +1,8 @@
 <?php
-// login.php - Updated for role-based system
-session_start();
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// login.php — Auth logic preserved; UI modernized with Tailwind.
 
-// Security headers
-header("Cache-Control: no-cache, no-store, must-revalidate");
-header("Pragma: no-cache");
-header("Expires: 0");
-header("X-Frame-Options: DENY");
-header("X-Content-Type-Options: nosniff");
-header("Referrer-Policy: strict-origin-when-cross-origin");
-
-require_once 'db.php';
-require_once 'auth_functions.php';
+require_once __DIR__ . '/bootstrap/init.php';   // secure session, headers, error handling, DB via .env
+require_once __DIR__ . '/auth_functions.php';
 
 // CSRF Token for form protection
 if (!isset($_SESSION['csrf_token'])) {
@@ -22,7 +11,7 @@ if (!isset($_SESSION['csrf_token'])) {
 
 // If user is already logged in, redirect to dashboard
 if (isLoggedIn()) {
-    header('Location: monthly_reports.php');
+    header('Location: index.php');
     exit;
 }
 
@@ -223,7 +212,7 @@ function processLoginResult($result, $password, $login_input, $conn, &$error) {
             
             // Redirect
             $redirect_url = isset($_SESSION['redirect_url']) ? 
-                          $_SESSION['redirect_url'] : 'monthly_reports.php';
+                          $_SESSION['redirect_url'] : 'index.php';
             unset($_SESSION['redirect_url']);
             
             header('Location: ' . $redirect_url);
@@ -290,178 +279,153 @@ function checkDatabaseConnection() {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LOGIn  MUWASCO MONTHLY REPORT</title>
-    
-    <!-- Security Meta Tags -->
-    <meta name="description" content="Secure login  MUWASCO Water Utility System">
-    <meta name="author" content="MUWASCO">
-    
-    <!-- Favicon -->
+    <title>Sign in · MUWASCO Monthly Report</title>
+    <meta name="description" content="Secure login for the MUWASCO Monthly Reporting System">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💧</text></svg>">
-    
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="public/assets/css/app.css">
 </head>
-<body>
-    <div class="login-container">
-        <div class="login-box">
-            <!-- Logo Section -->
-            <div class="logo-section">
-                <div class="logo">
-                    <img src="muwascologo.png" alt="MUWASCO Logo">
+<body class="h-full font-sans antialiased bg-gray-100">
+
+    <!-- Split-screen layout: brand panel + form panel -->
+    <div class="flex min-h-full flex-col lg:flex-row">
+
+        <!-- Brand panel (hidden on small screens) -->
+        <div class="relative hidden lg:flex lg:w-[45%] xl:w-[50%] flex-col justify-between bg-gradient-to-br from-primary-dark via-primary to-cyan-800 p-10 xl:p-14 text-white overflow-hidden">
+            <div class="absolute -top-24 -right-24 h-96 w-96 rounded-full bg-white/5"></div>
+            <div class="absolute bottom-0 left-0 h-72 w-72 rounded-full bg-black/10 translate-x-12 translate-y-24"></div>
+
+            <header class="relative z-10 flex items-center gap-4">
+                <img src="muwascologo.png" alt="MUWASCO logo" class="h-14 w-14 rounded-xl bg-white/95 object-contain p-1 shadow-lg ring-1 ring-white/30">
+                <div>
+                    <p class="text-xl font-bold tracking-tight">MUWASCO</p>
+                    <p class="text-sm text-cyan-100/90">Murang'a Water &amp; Sanitation Company</p>
                 </div>
-                <div class="system-name">MUWASCO</div>
-                <div class="organization">Monthly Report</div>
-            </div>
+            </header>
 
-            <!-- Form Section -->
-            <div class="form-section">
-                <h1 class="form-title">Secure Access</h1>
+            <main class="relative z-10 max-w-md">
+                <h2 class="text-3xl xl:text-4xl font-bold leading-tight">Monthly Performance Reporting, simplified.</h2>
+                <p class="mt-4 text-cyan-100/90 leading-relaxed">
+                    Capture, review and approve operational indicators — with role-based access, secure approval workflows and one-click PDF reporting.
+                </p>
+                <ul class="mt-8 space-y-3 text-sm text-cyan-50/90">
+                    <li class="flex items-center gap-3"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-white/15">✓</span> Role-based data entry &amp; approvals</li>
+                    <li class="flex items-center gap-3"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-white/15">✓</span> Complete historical record kept safe</li>
+                    <li class="flex items-center gap-3"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-white/15">✓</span> Branded PDF exports for management</li>
+                </ul>
+            </main>
 
-                <?php if ($error): ?>
-                    <div class="alert">
-                        <strong>⚠ Authentication Failed:</strong><br>
-                        <?php echo htmlspecialchars($error, ENT_QUOTES, 'UTF-8'); ?>
+            <footer class="relative z-10 text-xs text-cyan-100/70">
+
+        <!-- Form panel -->
+        <div class="flex flex-1 flex-col items-center justify-center px-5 py-10 sm:px-10">
+            <div class="w-full max-w-md">
+
+                <!-- Mobile-only brand -->
+                <div class="mb-8 flex items-center gap-3 lg:hidden">
+                    <img src="muwascologo.png" alt="MUWASCO logo" class="h-11 w-11 rounded-lg bg-white object-contain p-1 shadow ring-1 ring-gray-200">
+                    <div>
+                        <p class="font-bold text-gray-900 leading-tight">MUWASCO</p>
+                        <p class="text-xs text-gray-500">Monthly Report System</p>
                     </div>
-                <?php endif; ?>
+                </div>
 
-                <form method="POST" id="loginForm" autocomplete="on">
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
+                <div class="card sm:shadow-md">
+                    <h1 class="text-2xl font-bold tracking-tight text-gray-900">Welcome back</h1>
+                    <p class="mt-1 text-sm text-gray-500">Sign in to continue to your monthly report.</p>
 
-                    <div class="form-group">
-                        <label class="form-label" for="login_input">Username or Email</label>
-                        <input 
-                            type="text" 
-                            class="form-input" 
-                            id="login_input" 
-                            name="login_input" 
-                            placeholder="Enter your username or email"
-                            required 
-                            autofocus 
-                            autocomplete="username email"
-                            value="<?php echo htmlspecialchars($login_input, ENT_QUOTES, 'UTF-8'); ?>"
-                            maxlength="100">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label" for="password">Password</label>
-                        <div class="password-wrapper">
-                            <input 
-                                type="password" 
-                                class="form-input" 
-                                id="password" 
-                                name="password" 
-                                placeholder="Enter your password"
-                                required 
-                                minlength="6"
-                                autocomplete="current-password"
-                                maxlength="255">
-                            <button type="button" class="password-toggle" id="togglePassword" aria-label="Show password">
-                                👁
-                            </button>
+                    <?php if ($error): ?>
+                        <div class="alert-error mt-5" role="alert">
+                            <strong class="font-semibold">Authentication failed:</strong><br>
+                            <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
                         </div>
-                    </div>
+                    <?php endif; ?>
 
-                    <div class="form-options">
-                        <label class="remember-me">
-                            <input type="checkbox" id="rememberMe" name="remember">
-                            <span>Remember me</span>
-                        </label>
-                        <a href="forgot_password.php" class="forgot-link">Forgot password?</a>
-                    </div>
+                    <form method="POST" id="loginForm" autocomplete="on" class="mt-6 space-y-5">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') ?>">
 
-                    <button type="submit" class="btn-signin" id="loginButton">
-                        Sign In
-                    </button>
-                </form>
-                
-                <!-- Role-based system notice -->
-                <div class="system-notice">
-                    <p><small>Access is granted based on your assigned role. Contact administrator for role changes.</small></p>
+                        <div>
+                            <label class="form-label" for="login_input">Username or Email</label>
+                            <input type="text" id="login_input" name="login_input" class="form-input"
+                                placeholder="you@muwasco.co.ke" required autofocus
+                                autocomplete="username email"
+                                value="<?= htmlspecialchars($login_input ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                maxlength="100">
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="password">Password</label>
+                            <div class="relative">
+                                <input type="password" id="password" name="password" class="form-input pr-11"
+                                    placeholder="Enter your password" required minlength="6"
+
+                        <div class="flex items-center justify-between text-sm">
+                            <label class="flex items-center gap-2 text-gray-600 cursor-pointer select-none">
+                                <input type="checkbox" id="rememberMe" name="remember" class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary">
+                                <span>Remember me</span>
+                            </label>
+                            <a href="forgot_password.php" class="font-medium text-primary hover:text-primary-dark hover:underline">Forgot password?</a>
+                        </div>
+
+                        <button type="submit" id="loginButton" class="btn-primary w-full py-2.5 text-base">
+                            Sign In
+                        </button>
+                    </form>
+
+                    <p class="mt-6 border-t border-gray-100 pt-4 text-center text-xs text-gray-400">
+                        Access is granted based on your assigned role.<br>Contact the administrator for role changes.
+                    </p>
                 </div>
-            </div>
 
-            <!-- Footer -->
-            <div class="login-footer">
-                <p class="footer-text">
-                    <span class="footer-icon">🔒</span> Your connection is secure and encrypted
-                </p>
-                <p class="footer-text">
-                    <span class="footer-icon">👥</span> Role-based access control system
+                <p class="mt-6 flex items-center justify-center gap-1.5 text-xs text-gray-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+                    </svg>
+                    Secure connection · Role-based access control
                 </p>
             </div>
-        </div> <!-- End of .login-box -->
+        </div>
     </div>
 
     <script>
         // Password visibility toggle
-        const togglePassword = document.getElementById('togglePassword');
-        const passwordInput = document.getElementById('password');
-        
-        if (togglePassword && passwordInput) {
-            togglePassword.addEventListener('click', function() {
-                const type = passwordInput.type === 'password' ? 'text' : 'password';
-                passwordInput.type = type;
-                this.textContent = type === 'password' ? '👁' : '👁‍🗨';
-            });
-        }
+        const toggleBtn = document.getElementById('togglePassword');
+        const pwd = document.getElementById('password');
+        toggleBtn?.addEventListener('click', () => {
+            pwd.type = pwd.type === 'password' ? 'text' : 'password';
+            toggleBtn.setAttribute('aria-label', pwd.type === 'password' ? 'Show password' : 'Hide password');
+        });
 
-        // Form submission
+        // Prevent double submission
         const loginForm = document.getElementById('loginForm');
         const loginButton = document.getElementById('loginButton');
-        
-        if (loginForm && loginButton) {
-            let isSubmitting = false;
-            
-            loginForm.addEventListener('submit', function(e) {
-                if (isSubmitting) {
-                    e.preventDefault();
-                    return false;
-                }
-                
-                if (!this.checkValidity()) {
-                    e.preventDefault();
-                    return false;
-                }
-                
-                isSubmitting = true;
-                loginButton.disabled = true;
-                loginButton.textContent = 'Authenticating...';
-                
-                return true;
-            });
-        }
-
-        // Auto-focus on login input
-        const loginInput = document.getElementById('login_input');
-        if (loginInput) {
-            setTimeout(() => loginInput.focus(), 100);
-        }
-        
-        // Add some CSS for the system notice
-        const style = document.createElement('style');
-        style.textContent = `
-            .system-notice {
-                margin-top: 1rem;
-                padding: 0.5rem;
-                background-color: #f8f9fa;
-                border-radius: 4px;
-                text-align: center;
-                font-size: 0.85rem;
-                color: #6c757d;
-            }
-            
-            .system-notice small {
-                display: block;
-            }
-        `;
-        document.head.appendChild(style);
+        let submitting = false;
+        loginForm?.addEventListener('submit', function (e) {
+            if (submitting || !this.checkValidity()) { e.preventDefault(); return; }
+            submitting = true;
+            loginButton.disabled = true;
+            loginButton.textContent = 'Authenticating…';
+        });
     </script>
 </body>
 </html>
+
+                                    autocomplete="current-password" maxlength="255">
+                                <button type="button" id="togglePassword" aria-label="Show password"
+                                        class="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                &copy; <?= date('Y') ?> MUWASCO · Internal Management Information System
+            </footer>
+        </div>
+

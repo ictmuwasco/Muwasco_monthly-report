@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Buttons */
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 disabled:pointer-events-none; }
+  .btn-primary { @apply btn bg-primary text-white hover:bg-primary-dark; }
+  .btn-secondary { @apply btn bg-gray-100 text-gray-800 hover:bg-gray-200; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
+
+  /* Cards & panels */
+  .card { @apply bg-white rounded-xl shadow-sm border border-gray-100 p-5 md:p-6; }
+  .card-title { @apply text-base md:text-lg font-semibold text-gray-900 mb-1; }
+
+  /* Forms */
+  .form-label { @apply block text-sm font-medium text-gray-700 mb-1.5; }
+  .form-input { @apply w-full rounded-lg border-gray-300 shadow-sm text-sm focus:border-primary focus:ring-primary; }
+  .form-error { @apply mt-1 text-xs text-red-600; }
+
+  /* Tables */
+  .table-base { @apply min-w-full divide-y divide-gray-200 text-sm; }
+  .table-th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 bg-gray-50; }
+  .table-td { @apply px-4 py-3 whitespace-nowrap text-gray-700; }
+
+  /* Status badges (approval workflow) */
+  .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .badge-approved { @apply badge bg-emerald-100 text-emerald-800; }
+  .badge-pending { @apply badge bg-amber-100 text-amber-800; }
+  .badge-rejected { @apply badge bg-red-100 text-red-700; }
+
+  /* Alerts */
+  .alert { @apply rounded-lg p-4 text-sm mb-4; }
+  .alert-success { @apply alert bg-emerald-50 text-emerald-800 border border-emerald-200; }
+  .alert-error { @apply alert bg-red-50 text-red-800 border border-red-200; }
+}

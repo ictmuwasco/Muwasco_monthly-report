@@ -1,0 +1,16 @@
+# Secrets & environment
+.env
+
+# Dependencies
+vendor/
+node_modules/
+
+# Logs & runtime artifacts
+storage/logs/*
+storage/cache/*
+!storage/logs/.gitkeep
+!storage/cache/.gitkeep
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
