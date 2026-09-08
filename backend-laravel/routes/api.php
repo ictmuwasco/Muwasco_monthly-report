@@ -16,7 +16,7 @@ Route::prefix('v1')->group(function () {
 
     // ── Public auth endpoints ─────────────────────────────────────────────
     Route::post('/login', [App\Http\Controllers\Api\V1\AuthController::class, 'login'])
-        ->middleware('throttle:5,1'); // 5 attempts per minute
+        ->middleware('throttle:login'); // named limiter: 5/min per username+IP
     Route::get('/sanctum/csrf-cookie', [App\Http\Controllers\Api\V1\AuthController::class, 'csrfCookie'])
         ->middleware('web');
 

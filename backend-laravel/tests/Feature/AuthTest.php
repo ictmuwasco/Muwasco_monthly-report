@@ -111,4 +111,52 @@ class AuthTest extends TestCase
     {
         $this->postJson('/api/v1/login', [])->assertStatus(422);
     }
+
+    public function test_login_is_rate_limited_after_five_attempts(): void
+    {
+        $this->makeUser(['username' => 'ratelimit', 'password' => Hash::make('secret123')]);
+
+        // 5 failed attempts exhaust the limiter (keyed by username+IP).
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/v1/login', [
+                'username' => 'ratelimit',
+                'password' => 'wrong-password',
+            ])->assertStatus(422);
+        }
+
+        // 6th attempt — even with the CORRECT password — is throttled.
+        $res = $this->postJson('/api/v1/login', [
+            'username' => 'ratelimit',
+            'password' => 'secret123',
+        ]);
+
+        $res->assertStatus(429)
+            ->assertJsonStructure(['message', 'errors' => ['username']])
+            ->assertHeader('Retry-After');
+
+        $this->assertStringContainsString(
+            'Too many login attempts',
+            $res->json('message')
+        );
+    }
+
+    public function test_rate_limit_is_per_username_and_ip(): void
+    {
+        $this->makeUser(['username' => 'victim', 'email' => 'victim@example.com', 'password' => Hash::make('secret123')]);
+        $this->makeUser(['username' => 'other', 'email' => 'other@example.com', 'password' => Hash::make('secret123')]);
+
+        // Exhaust the limiter for the "victim" account only.
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/v1/login', [
+                'username' => 'victim',
+                'password' => 'wrong',
+            ])->assertStatus(422);
+        }
+
+        // A different account from the same IP is NOT throttled.
+        $this->postJson('/api/v1/login', [
+            'username' => 'other',
+            'password' => 'secret123',
+        ])->assertOk();
+    }
 }
