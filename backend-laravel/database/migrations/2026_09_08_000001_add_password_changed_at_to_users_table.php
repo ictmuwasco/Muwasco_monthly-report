@@ -17,6 +17,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Already declared inline by the legacy-core-tables bootstrap.
+        if (Schema::hasColumn('users', 'password_changed_at')) {
+            return;
+        }
         Schema::table('users', function (Blueprint $table) {
             $table->timestamp('password_changed_at')->nullable()->after('password');
         });

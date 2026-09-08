@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -13,6 +14,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // SQLite cannot add FKs via ALTER; the constraint is already declared
+        // inline by the legacy-core-tables bootstrap migration. MySQL-only.
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('parameters', function (Blueprint $table) {
             $table->foreign('category_id', 'fk_parameters_category')
                   ->references('id')->on('parameter_categories');
@@ -24,6 +31,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('parameters', function (Blueprint $table) {
             $table->dropForeign('fk_parameters_category');
         });

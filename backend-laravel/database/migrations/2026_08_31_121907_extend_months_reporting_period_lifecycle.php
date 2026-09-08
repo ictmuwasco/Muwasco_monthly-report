@@ -28,6 +28,13 @@ return new class extends Migration
 
     public function up(): void
     {
+        // Skipped when the legacy-core-tables bootstrap already created
+        // `months` with the full lifecycle enum + deadline + index
+        // (covers clean-DB installs and SQLite test schema).
+        if (Schema::hasColumn('months', 'submission_deadline')) {
+            return;
+        }
+
         Schema::table('months', function (Blueprint $table) {
             DB::statement(sprintf(
                 "ALTER TABLE `months` MODIFY `status` ENUM('%s') NULL DEFAULT 'draft'",
