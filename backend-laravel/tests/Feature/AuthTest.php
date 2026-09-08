@@ -159,4 +159,89 @@ class AuthTest extends TestCase
             'password' => 'secret123',
         ])->assertOk();
     }
+
+    /* ── Forced password change ──────────────────────────────── */
+
+    public function test_login_flags_must_change_password_when_never_changed(): void
+    {
+        $this->makeUser(['username' => 'freshuser', 'email' => 'fresh@example.com']);
+
+        $this->postJson('/api/v1/login', [
+            'username' => 'freshuser',
+            'password' => 'secret123',
+        ])->assertOk()->assertJsonPath('must_change_password', true);
+    }
+
+    public function test_login_clears_flag_after_password_was_changed(): void
+    {
+        $user = $this->makeUser(['username' => 'changeduser', 'email' => 'changed@example.com']);
+        $user->forceFill(['password_changed_at' => now()])->save();
+
+        $this->postJson('/api/v1/login', [
+            'username' => 'changeduser',
+            'password' => 'secret123',
+        ])->assertOk()->assertJsonPath('must_change_password', false);
+    }
+
+    public function test_change_password_requires_correct_current_password(): void
+    {
+        $user = $this->makeUser(['username' => 'changer', 'email' => 'changer@example.com']);
+        $token = $user->createToken('t')->plainTextToken;
+
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password'      => 'wrong-current',
+            'password'              => 'NewPass123',
+            'password_confirmation' => 'NewPass123',
+        ], ['Authorization' => "Bearer {$token}"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('current_password');
+
+        // Old password still valid.
+        $this->assertTrue(Hash::check('secret123', $user->fresh()->password));
+    }
+
+    public function test_change_password_updates_and_stamps_timestamp(): void
+    {
+        $user = $this->makeUser(['username' => 'stamper', 'email' => 'stamper@example.com']);
+        $this->assertNull($user->password_changed_at);
+
+        $token = $user->createToken('t')->plainTextToken;
+
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password'      => 'secret123',
+            'password'              => 'NewPass123',
+            'password_confirmation' => 'NewPass123',
+        ], ['Authorization' => "Bearer {$token}"])
+            ->assertOk()
+            ->assertJsonPath('must_change_password', false);
+
+        $fresh = $user->fresh();
+        $this->assertNotNull($fresh->password_changed_at);
+        $this->assertTrue(Hash::check('NewPass123', $fresh->password));
+        $this->assertFalse($fresh->mustChangePassword());
+    }
+
+    public function test_change_password_rejects_weak_password(): void
+    {
+        $user = $this->makeUser(['username' => 'weakpw', 'email' => 'weak@example.com']);
+        $token = $user->createToken('t')->plainTextToken;
+
+        // Weak: no numbers.
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password'      => 'secret123',
+            'password'              => 'onlyletters',
+            'password_confirmation' => 'onlyletters',
+        ], ['Authorization' => "Bearer {$token}"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('password');
+    }
+
+    public function test_change_password_requires_authentication(): void
+    {
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password'      => 'x',
+            'password'              => 'NewPass123',
+            'password_confirmation' => 'NewPass123',
+        ])->assertStatus(401);
+    }
 }

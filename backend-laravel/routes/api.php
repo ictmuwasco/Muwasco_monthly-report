@@ -24,6 +24,8 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [App\Http\Controllers\Api\V1\AuthController::class, 'logout']);
         Route::get('/me', [App\Http\Controllers\Api\V1\AuthController::class, 'me']);
+        Route::post('/auth/change-password', [App\Http\Controllers\Api\V1\AuthController::class, 'changePassword'])
+            ->middleware('throttle:6,1');
 
         // ── User management (mutations admin-only via UserPolicy) ─────────
         Route::get('/users', [App\Http\Controllers\Api\V1\UserController::class, 'index']);

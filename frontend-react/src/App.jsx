@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
 import ReportingPeriods from './pages/ReportingPeriods';
 import DataEntry from './pages/DataEntry';
@@ -17,6 +18,8 @@ function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner label="Loading…" />;
   if (!user) return <Navigate to="/login" replace />;
+  // Forced password change: block everything until the user sets a new password.
+  if (user.must_change_password) return <Navigate to="/change-password" replace />;
   return children;
 }
 
@@ -30,6 +33,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/change-password" element={<ChangePassword />} />
       <Route
         element={
           <RequireAuth>

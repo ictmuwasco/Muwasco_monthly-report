@@ -19,6 +19,7 @@ trait UsesSqliteLegacySchema
                 $table->string('email')->unique();
                 $table->string('full_name');
                 $table->string('password');
+                $table->timestamp('password_changed_at')->nullable();
                 $table->enum('role', ['admin', 'user'])->default('user');
                 $table->boolean('is_active')->default(true);
                 $table->timestamp('created_at')->nullable()->useCurrent();

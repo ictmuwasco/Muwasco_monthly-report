@@ -39,6 +39,7 @@ class User extends Authenticatable
         'email',
         'full_name',
         'password',
+        'password_changed_at',
         'role',
         'is_active',
     ];
@@ -60,12 +61,23 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'is_active'  => 'boolean',
-            'created_at' => 'datetime',
+            'is_active'           => 'boolean',
+            'created_at'          => 'datetime',
+            'password_changed_at' => 'datetime',
         ];
     }
 
     /* ── Helpers ─────────────────────────────────────────── */
+
+    /**
+     * TRUE when the user must change their password before using the app:
+     * seeded accounts, admin-created accounts, and accounts whose password
+     * was reset by an admin all have a NULL password_changed_at.
+     */
+    public function mustChangePassword(): bool
+    {
+        return $this->password_changed_at === null;
+    }
 
     public function isAdmin(): bool
     {

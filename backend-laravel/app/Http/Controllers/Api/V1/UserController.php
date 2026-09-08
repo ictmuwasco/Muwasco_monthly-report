@@ -142,6 +142,8 @@ class UserController extends Controller
         ]);
 
         $user->password = Hash::make($data['password']);
+        // Admin reset → force the user to set their own password at next login.
+        $user->password_changed_at = null;
         $user->save();
         $user->tokens()->delete(); // force re-login everywhere
 

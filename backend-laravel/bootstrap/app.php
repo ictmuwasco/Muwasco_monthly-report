@@ -13,8 +13,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->statefulApi();
+        ->withMiddleware(function (Middleware $middleware): void {
+        // Bearer-token (Sanctum API token) auth only — no stateful/SPA cookie middleware.
+        // The React frontend logs in via POST /api/v1/login and stores the bearer
+        // token in localStorage; it sends the token on every request. Removing
+        // statefulApi() avoids a redirect to a non-existent [login] named route
+        // when an unauthenticated token is presented.
     })
     ->withProviders([
         AuthServiceProvider::class,

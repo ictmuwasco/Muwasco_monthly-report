@@ -65,9 +65,48 @@ class AuthController extends Controller
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Login successful.',
-            'user'    => $this->userPayload($user),
-            'token'   => $token,
+            'message'              => 'Login successful.',
+            'user'                 => $this->userPayload($user),
+            'token'                => $token,
+            'must_change_password' => $user->mustChangePassword(),
+        ]);
+    }
+
+    /**
+     * Change the authenticated user's own password (requires the current one).
+     * Stamps password_changed_at, revokes other sessions, and logs the action.
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password'         => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(8)
+                ->letters()
+                ->numbers()],
+        ]);
+
+        if (! Hash::check($data['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password is incorrect.'],
+            ]);
+        }
+
+        $user->password = Hash::make($data['password']);
+        $user->password_changed_at = now();
+        $user->save();
+
+        // Revoke every token except the one used for this request, forcing
+        // re-login on other devices.
+        $currentId = (int) strtok((string) $request->bearerToken(), '|');
+        $user->tokens()->where('id', '!=', $currentId)->delete();
+
+        \App\Services\AuditLogger::record('user.password_changed', $user);
+
+        return response()->json([
+            'message'              => 'Password changed successfully.',
+            'must_change_password' => false,
         ]);
     }
 
@@ -114,13 +153,14 @@ class AuthController extends Controller
     private function userPayload(User $user): array
     {
         return [
-            'id'         => $user->id,
-            'username'   => $user->username,
-            'full_name'  => $user->full_name,
-            'email'      => $user->email,
-            'role'       => $user->role,
-            'is_active'  => (bool) $user->is_active,
-            'created_at' => $user->created_at,
+            'id'                   => $user->id,
+            'username'             => $user->username,
+            'full_name'            => $user->full_name,
+            'email'                => $user->email,
+            'role'                 => $user->role,
+            'is_active'            => (bool) $user->is_active,
+            'must_change_password' => $user->mustChangePassword(),
+            'created_at'           => $user->created_at,
         ];
     }
 }
