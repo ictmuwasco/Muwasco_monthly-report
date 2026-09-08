@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiError } from '../lib/api';
+import { errorMap } from '../lib/api';
 import { FieldErrors } from '../components/Ui';
 
 export default function Login() {
@@ -22,11 +22,7 @@ export default function Login() {
       await login(username, password);
       navigate('/', { replace: true });
     } catch (err) {
-      const map = {};
-      const data = err?.response?.data;
-      if (data?.errors) Object.assign(map, data.errors);
-      else map._server = [apiError(err)];
-      setErrors(map);
+      setErrors(errorMap(err));
     } finally {
       setBusy(false);
     }

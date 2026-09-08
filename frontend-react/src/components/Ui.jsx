@@ -21,17 +21,34 @@ export function EmptyState({ title = 'No records', message }) {
 
 export function FieldErrors({ errors }) {
   if (!errors || Object.keys(errors).length === 0) return null;
-  const rows = Object.entries(errors).flatMap(([k, msgs]) => msgs.map((m) => ({ k, m })));
+  const rows = Object.entries(errors).flatMap(([k, msgs]) =>
+    (Array.isArray(msgs) ? msgs : [msgs]).map((m) => ({ k, m })),
+  );
+  if (rows.length === 0) return null;
+
+  // A single generic message (e.g. login failure) reads better without
+  // the field-name prefix — show it as one clean sentence.
+  const genericOnly = rows.length === 1 && (rows[0].k === '_server' || rows[0].k === 'username');
+
   return (
     <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-      <p className="font-semibold mb-1">Please fix the following:</p>
-      <ul className="list-disc pl-5">
-        {rows.map((r, i) => (
-          <li key={i}>
-            <span className="font-mono text-xs text-red-500">{r.k}:</span> {r.m}
-          </li>
-        ))}
-      </ul>
+      {genericOnly ? (
+        <p>{rows[0].m}</p>
+      ) : (
+        <>
+          <p className="font-semibold mb-1">Please fix the following:</p>
+          <ul className="list-disc pl-5">
+            {rows.map((r, i) => (
+              <li key={i}>
+                {r.k !== '_server' && (
+                  <span className="font-medium capitalize">{r.k.replace(/_/g, ' ')}: </span>
+                )}
+                {r.m}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

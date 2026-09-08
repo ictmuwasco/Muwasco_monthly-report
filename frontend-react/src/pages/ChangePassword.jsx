@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { api, apiError } from '../lib/api';
+import { api, errorMap } from '../lib/api';
 import { FieldErrors } from '../components/Ui';
 
 export default function ChangePassword() {
@@ -36,11 +36,7 @@ export default function ChangePassword() {
         setConfirmation('');
       }
     } catch (err) {
-      const map = {};
-      const data = err?.response?.data;
-      if (data?.errors) Object.assign(map, data.errors);
-      else map._server = [apiError(err)];
-      setErrors(map);
+      setErrors(errorMap(err));
     } finally {
       setBusy(false);
     }
