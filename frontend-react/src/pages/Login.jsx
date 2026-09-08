@@ -29,25 +29,42 @@ export default function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50 p-4">
-      {/* Background pattern */}
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-ocean-50 via-deep-50 to-ocean-100 p-4">
+      {/* Background: ocean depth orbs + wave motif */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-80 w-80 rounded-full bg-blue-200/30 blur-3xl"></div>
-        <div className="absolute -bottom-40 -right-40 h-80 w-80 rounded-full bg-indigo-200/30 blur-3xl"></div>
-        <div className="absolute top-1/3 left-1/4 h-2 w-2 rounded-full bg-blue-400/40"></div>
-        <div className="absolute top-2/3 right-1/3 h-3 w-3 rounded-full bg-indigo-400/40"></div>
-        <div className="absolute bottom-1/4 left-1/3 h-1 w-1 rounded-full bg-gray-300/50"></div>
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-ocean-200/40 blur-3xl"></div>
+        <div className="absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-aqua-200/40 blur-3xl"></div>
+        <div className="absolute top-1/3 left-1/4 h-2 w-2 rounded-full bg-ocean-300/50"></div>
+        <div className="absolute top-2/3 right-1/3 h-3 w-3 rounded-full bg-aqua-300/50"></div>
+        <div className="absolute bottom-1/4 left-1/3 h-1 w-1 rounded-full bg-ocean-200/60"></div>
+        {/* Stylised ocean waves along the bottom */}
+        <svg
+          className="absolute bottom-0 left-0 w-full text-ocean-200/50"
+          viewBox="0 0 1440 120"
+          fill="currentColor"
+          preserveAspectRatio="none"
+        >
+          <path d="M0,64 C240,110 480,10 720,54 C960,98 1200,32 1440,70 L1440,120 L0,120 Z" />
+        </svg>
+        <svg
+          className="absolute bottom-0 left-0 w-full text-ocean-300/40"
+          viewBox="0 0 1440 90"
+          fill="currentColor"
+          preserveAspectRatio="none"
+        >
+          <path d="M0,50 C260,90 520,4 780,40 C1040,76 1240,20 1440,55 L1440,90 L0,90 Z" />
+        </svg>
       </div>
 
       <div className="relative w-full max-w-md">
         {/* Logo & header */}
         <div className="mb-8 text-center">
-          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-3xl font-bold text-white shadow-lg ring-4 ring-blue-100">
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-ocean-500 to-ocean-800 text-3xl font-bold text-white shadow-lg shadow-ocean-600/30 ring-4 ring-ocean-100">
             M
           </span>
-          <h1 className="mt-5 text-3xl font-bold text-gray-900">MUWASCO Reporting</h1>
-          <p className="mt-2 text-sm text-gray-500">Monthly Performance Reporting System</p>
-          <p className="mt-1 text-xs text-gray-400">ATHI WATER WORKS DEVELOPMENT AGENCY</p>
+          <h1 className="mt-5 text-3xl font-bold text-ocean-950">MUWASCO Reporting</h1>
+          <p className="mt-2 text-sm text-deep-500">Monthly Performance Reporting System</p>
+          <p className="mt-1 text-xs text-deep-400">ATHI WATER WORKS DEVELOPMENT AGENCY</p>
         </div>
 
         {/* Login card */}

@@ -55,18 +55,18 @@ export function FieldErrors({ errors }) {
 
 export const STATUS_STYLES = {
   draft: 'bg-gray-100 text-gray-700',
-  open: 'bg-blue-100 text-blue-700',
-  submitted: 'bg-indigo-100 text-indigo-700',
+  open: 'bg-ocean-100 text-ocean-800',
+  submitted: 'bg-ocean-200 text-ocean-900',
   under_review: 'bg-amber-100 text-amber-700',
   changes_requested: 'bg-orange-100 text-orange-700',
-  approved: 'bg-green-100 text-green-700',
+  approved: 'bg-aqua-100 text-aqua-800',
   rejected: 'bg-red-100 text-red-700',
-  closed: 'bg-slate-100 text-slate-600',
+  closed: 'bg-deep-100 text-deep-700',
 };
 
 export function StatusBadge({ status }) {
   return (
-    <span className={`badge ${STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-700'}`}>
+    <span className={`badge ${STATUS_STYLES[status] ?? 'bg-deep-100 text-deep-700'}`}>
       {String(status ?? '').replace(/_/g, ' ')}
     </span>
   );

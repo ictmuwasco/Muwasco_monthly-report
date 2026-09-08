@@ -30,8 +30,8 @@ export default function Dashboard() {
   const recent = [...all].sort((a, b) => (a.start_date < b.start_date ? 1 : -1)).slice(0, 5);
 
   const stats = [
-    { label: 'Total periods', value: all.length, color: 'bg-blue-100 text-blue-700' },
-    { label: 'Open', value: countBy('open'), color: 'bg-blue-100 text-blue-700' },
+    { label: 'Total periods', value: all.length, color: 'bg-ocean-100 text-ocean-800' },
+    { label: 'Open', value: countBy('open'), color: 'bg-ocean-100 text-ocean-800' },
     { label: 'Submitted', value: countBy('submitted'), color: 'bg-indigo-100 text-indigo-700' },
     { label: 'Approved', value: countBy('approved'), color: 'bg-green-100 text-green-700' },
     { label: 'Under review', value: countBy('under_review'), color: 'bg-amber-100 text-amber-700' },

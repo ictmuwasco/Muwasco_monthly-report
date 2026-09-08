@@ -7,30 +7,34 @@
     @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+    @apply bg-ocean-600 text-white hover:bg-ocean-700 focus:ring-ocean-500;
   }
   .btn-secondary {
-    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-blue-500;
+    @apply bg-white text-ocean-700 border border-ocean-200 hover:bg-ocean-50 focus:ring-ocean-500;
   }
   .btn-danger {
     @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
   }
   .btn-success {
-    @apply bg-green-600 text-white hover:bg-green-700 focus:ring-green-500;
+    @apply bg-aqua-600 text-white hover:bg-aqua-700 focus:ring-aqua-500;
   }
   .input {
-    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+    @apply w-full rounded-md border border-ocean-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500;
   }
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200;
+    @apply bg-white rounded-lg shadow-sm border border-ocean-100;
   }
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
   .th {
-    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-ocean-700 bg-ocean-50;
   }
   .td {
     @apply px-4 py-3 text-sm text-gray-800;
+  }
+  /* Page header band used by section titles */
+  .page-title {
+    @apply text-2xl font-bold text-ocean-950;
   }
 }

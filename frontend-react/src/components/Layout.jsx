@@ -26,7 +26,9 @@ function SidebarLink({ to, children }) {
       to={to}
       className={({ isActive }) =>
         `flex items-center rounded-md px-3 py-2 text-sm font-medium transition ${
-          isActive ? 'bg-blue-700 text-white' : 'text-blue-100 hover:bg-blue-700/50'
+          isActive
+            ? 'bg-ocean-500/90 text-white shadow-sm shadow-ocean-900/50'
+            : 'text-ocean-100/80 hover:bg-white/10 hover:text-white'
         }`
       }
     >
@@ -40,7 +42,7 @@ export default function Layout() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+      <div className="flex min-h-screen items-center justify-center bg-deep-50">
         <Spinner label="Checking session…" />
       </div>
     );
@@ -57,19 +59,22 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-gray-900 text-white">
-        <div className="flex items-center gap-2 border-b border-gray-700 px-5 py-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 font-bold">
+    <div className="flex min-h-screen bg-deep-50">
+      {/* Sidebar — deep ocean gradient */}
+      <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-gradient-to-b from-deep-950 via-ocean-950 to-ocean-900 text-white">
+        {/* Brand */}
+        <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-ocean-400 to-ocean-600 font-bold shadow-md shadow-ocean-500/30">
             M
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-semibold">MUWASCO</p>
-            <p className="text-xs text-blue-300">Reporting</p>
+            <p className="text-sm font-semibold tracking-wide">MUWASCO</p>
+            <p className="text-xs text-ocean-300">Reporting</p>
           </div>
         </div>
-        <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
+
+        {/* Nav */}
+        <div className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
           {links.map((l) => (
             <SidebarLink key={l.to} to={l.to}>
               <span className="mr-3 opacity-80">{l.icon}</span>
@@ -77,13 +82,15 @@ export default function Layout() {
             </SidebarLink>
           ))}
         </div>
-        <div className="border-t border-gray-700 p-4">
-          <p className="truncate text-sm font-medium text-gray-200">{user.full_name || user.username}</p>
-          <p className="text-xs text-gray-400">{user.role}</p>
+
+        {/* User footer */}
+        <div className="border-t border-white/10 p-4">
+          <p className="truncate text-sm font-medium text-white">{user.full_name || user.username}</p>
+          <p className="text-xs capitalize text-ocean-300">{user.role}</p>
           <div className="mt-3 flex gap-2">
             <button
               onClick={handleLogout}
-              className="flex-1 rounded-md bg-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-600"
+              className="flex-1 rounded-md bg-white/10 px-3 py-2 text-sm text-ocean-100 transition hover:bg-white/20"
             >
               Sign out
             </button>
@@ -92,7 +99,7 @@ export default function Layout() {
               title="Change password"
               className={({ isActive }) =>
                 `flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition ${
-                  isActive ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                  isActive ? 'bg-ocean-500 text-white' : 'bg-white/10 text-ocean-100 hover:bg-white/20'
                 }`
               }
             >

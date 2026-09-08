@@ -43,7 +43,7 @@ export default function ChangePassword() {
   };
 
   const inputCls =
-    'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100';
+    'w-full rounded-lg border border-ocean-200 bg-white px-3 py-2 text-sm text-ocean-950 placeholder:text-ocean-300 focus:border-ocean-500 focus:outline-none focus:ring-2 focus:ring-ocean-200';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
