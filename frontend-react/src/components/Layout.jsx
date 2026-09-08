@@ -80,12 +80,25 @@ export default function Layout() {
         <div className="border-t border-gray-700 p-4">
           <p className="truncate text-sm font-medium text-gray-200">{user.full_name || user.username}</p>
           <p className="text-xs text-gray-400">{user.role}</p>
-          <button
-            onClick={handleLogout}
-            className="mt-3 w-full rounded-md bg-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-600"
-          >
-            Sign out
-          </button>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={handleLogout}
+              className="flex-1 rounded-md bg-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-600"
+            >
+              Sign out
+            </button>
+            <RRNavLink
+              to="/change-password"
+              title="Change password"
+              className={({ isActive }) =>
+                `flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition ${
+                  isActive ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                }`
+              }
+            >
+              🔑
+            </RRNavLink>
+          </div>
         </div>
       </aside>
 

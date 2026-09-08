@@ -7,11 +7,13 @@ import { FieldErrors } from '../components/Ui';
 export default function ChangePassword() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
+  const forced = Boolean(user?.must_change_password);
   const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -25,7 +27,14 @@ export default function ChangePassword() {
       });
       // Flag is cleared server-side; update local state and continue.
       setUser({ ...user, must_change_password: false });
-      navigate('/', { replace: true });
+      if (forced) {
+        navigate('/', { replace: true });
+      } else {
+        setSuccess(true);
+        setCurrentPassword('');
+        setPassword('');
+        setConfirmation('');
+      }
     } catch (err) {
       const map = {};
       const data = err?.response?.data;
@@ -46,8 +55,16 @@ export default function ChangePassword() {
         <div className="card p-6">
           <h1 className="text-xl font-bold text-gray-900">Change your password</h1>
           <p className="mt-1 mb-5 text-sm text-gray-500">
-            For security, you must set a new password before continuing.
+            {forced
+              ? 'For security, you must set a new password before continuing.'
+              : 'Choose a strong password you have not used elsewhere.'}
           </p>
+
+          {success && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+              Password updated successfully.
+            </div>
+          )}
 
           <FieldErrors errors={errors} />
 
@@ -95,9 +112,20 @@ export default function ChangePassword() {
                 required
               />
             </div>
-            <button className="btn btn-primary w-full" disabled={busy}>
-              {busy ? 'Saving…' : 'Save new password'}
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-primary flex-1" disabled={busy}>
+                {busy ? 'Saving…' : 'Save new password'}
+              </button>
+              {!forced && (
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </div>
         <p className="mt-4 text-center text-xs text-gray-400">
